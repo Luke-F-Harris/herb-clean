@@ -122,4 +122,10 @@ bank:
   booth_template: "bank_booth.png"
   chest_template: "bank_chest.png"
   deposit_all_template: "deposit_all.png"
-  close_button_template: "bank_close.png"
+  close_button_template: "bank_close.png"  # Optional - can use ESC only if missing
+
+  # Bank closing method (varies for human-like behavior)
+  # esc_chance: probability of using ESC key (vs clicking X button)
+  # Real players mix both methods
+  # Set to 1.0 to always use ESC (if you don't have close_button template)
+  esc_chance: 0.70  # 70% ESC, 30% click close button

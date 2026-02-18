@@ -14,11 +14,14 @@ An automated herb cleaning bot for Old School RuneScape with extensive anti-dete
 - **State Machine Architecture**: Clean FSM-based flow control
 - **Human-like Mouse Movement**: Bezier curves with overshoot simulation
 - **Click Randomization**: Gaussian position distribution, Gamma timing distribution
+- **Keyboard Variation**: Unique timing for every keypress, randomized ESC vs click methods
 - **Fatigue Simulation**: Gradual performance degradation over time
 - **Break Scheduling**: Micro-breaks (2-10s) and long breaks (1-5min)
 - **Attention Drift**: Random mouse movements to simulate distraction
 - **Emergency Stop**: F12 hotkey for immediate halt
 - **Session Tracking**: Statistics and runtime limits
+
+📖 **See [ANTI_DETECTION.md](ANTI_DETECTION.md) for detailed anti-detection information**
 
 ## Requirements
 
@@ -207,6 +210,8 @@ osrs_herblore/
 | Mouse movement | Bezier curves, 2 control points, 200-400 px/s, 30% overshoot |
 | Click position | Gaussian distribution within item bounds |
 | Click duration | Gamma distribution, 50-200ms |
+| Keyboard timing | Unique per keypress, 30-200ms hold, context-aware travel time |
+| Bank closing | 70% ESC / 30% click X (randomized, configurable) |
 | Action delays | Gamma distribution (~600ms mean), never uniform |
 | Fatigue | After 30 min: 10-50% slower, 1-5% misclick rate |
 | Breaks | Micro (2-10s / 8-15min), Long (1-5min / 45-90min) |

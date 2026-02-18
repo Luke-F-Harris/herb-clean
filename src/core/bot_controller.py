@@ -4,6 +4,7 @@ import logging
 import time
 from typing import Optional
 
+import numpy as np
 from pynput.mouse import Button
 
 from .config_manager import ConfigManager
@@ -143,6 +144,7 @@ class BotController:
         )
 
         self._is_running = False
+        self._rng = np.random.default_rng()
 
     def _handle_emergency_stop(self) -> None:
         """Handle emergency stop trigger."""
@@ -363,11 +365,41 @@ class BotController:
             self.state_machine.close_bank()
 
     def _handle_banking_close(self) -> None:
-        """Handle closing the bank."""
+        """Handle closing the bank.
+
+        Randomly chooses between ESC key and clicking close button
+        for human-like variation.
+        """
         self._logger.debug("Closing bank...")
 
-        # Press escape to close
-        self.keyboard.press_escape()
+        # Random choice: ESC key or click close button
+        esc_chance = self.config.get("bank.esc_chance", 0.70)
+        use_esc = self._rng.random() < esc_chance
+
+        if use_esc:
+            # Press ESC key (70% default)
+            self._logger.debug("Closing bank with ESC")
+            self.keyboard.press_escape()
+        else:
+            # Click close button (30% default)
+            self._logger.debug("Closing bank by clicking X")
+            close_pos = self.bank.find_close_button()
+
+            if close_pos:
+                target = ClickTarget(
+                    center_x=close_pos[0],
+                    center_y=close_pos[1],
+                    width=20,
+                    height=20,
+                )
+                self.mouse.click_at_target(
+                    target,
+                    misclick_rate=self.fatigue.get_misclick_rate(),
+                )
+            else:
+                # Fallback to ESC if close button not found
+                self._logger.warning("Close button not found, using ESC")
+                self.keyboard.press_escape()
 
         time.sleep(self.timing.get_post_action_delay(ActionType.CLOSE_BANK))
 
