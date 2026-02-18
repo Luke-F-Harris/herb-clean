@@ -65,6 +65,14 @@ except ImportError as e:
     input("Press ENTER to exit...")
     sys.exit(1)
 
+try:
+    from vision.bank_detector import BankDetector
+    print("✓ BankDetector imported")
+except ImportError as e:
+    print(f"✗ Failed to import BankDetector: {e}")
+    input("Press ENTER to exit...")
+    sys.exit(1)
+
 print("✓ All imports successful")
 print()
 
@@ -107,12 +115,23 @@ def main():
 
     matcher = TemplateMatcher(
         templates_dir,
-        confidence_threshold=0.70,
-        multi_scale=True,
-        scale_range=(0.7, 1.3),
-        scale_steps=7
+        confidence_threshold=config['vision']['confidence_threshold'],
+        multi_scale=config['vision']['multi_scale'],
+        scale_range=tuple(config['vision']['scale_range']),
+        scale_steps=config['vision']['scale_steps']
     )
     print("✓ Template matcher initialized")
+    print(f"  Using scale range: {config['vision']['scale_range']}")
+    print(f"  Using {config['vision']['scale_steps']} scale steps")
+
+    # Initialize BankDetector (uses the improved scale-aware detection)
+    bank_detector = BankDetector(
+        screen_capture=screen,
+        template_matcher=matcher,
+        bank_config=config['bank'],
+        grimy_templates=config['herbs']['grimy']
+    )
+    print("✓ Bank detector initialized")
     print()
 
     print("Searching for RuneLite window...")
@@ -134,60 +153,110 @@ def main():
     print(f"✓ Captured {window_img.shape[1]}x{window_img.shape[0]} image")
     print()
 
-    # Detect bank region to restrict search area
-    print("Detecting bank interface region...")
+    # Use the improved BankDetector to get bank region (scale-aware!)
+    print("Detecting bank interface region (scale-aware)...")
 
-    # Find close button to locate bank
+    # Get scale-aware bank region using the improved method
+    bank_region = bank_detector._get_bank_item_region(window_img)
+
+    # Also get button positions for visualization
     close_match = matcher.match(
         window_img,
-        config.get('bank', {}).get('close_button_template', 'bank_close.png')
+        config['bank']['close_button_template']
     )
     deposit_match = matcher.match(
         window_img,
-        config.get('bank', {}).get('deposit_all_template', 'deposit_all.png')
+        config['bank']['deposit_all_template']
     )
 
-    bank_region = None
-    if close_match.found:
-        # Use close button to calculate bank region
-        close_x = close_match.x
-        close_y = close_match.y
-        x = max(0, close_x - 900)
-        y = max(0, close_y - 20)
-        width = min(950, window_img.shape[1] - x)
-        height = min(600, window_img.shape[0] - y)
-        bank_region = (x, y, width, height)
-        print(f"✓ Bank region detected via close button: ({x}, {y}) {width}x{height}")
-    elif deposit_match.found:
-        # Fallback to deposit button
-        deposit_x = deposit_match.x
-        deposit_y = deposit_match.y
-        x = max(0, deposit_x - 400)
-        y = max(0, deposit_y - 600)
-        width = min(900, window_img.shape[1] - x)
-        height = min(550, deposit_y - y)
-        bank_region = (x, y, width, height)
-        print(f"✓ Bank region detected via deposit button: ({x}, {y}) {width}x{height}")
-    else:
-        print("⚠ Could not detect bank region - searching full image")
-        print("  Make sure bank is open with close/deposit button visible")
-
-    # Crop to bank region if detected
     if bank_region:
         x, y, width, height = bank_region
+        print(f"✓ Bank region detected: ({x}, {y}) {width}x{height}")
+
+        if close_match.found:
+            print(f"  Close button at: ({close_match.x}, {close_match.y})")
+            print(f"  Detected scale: {close_match.scale:.2f}x")
+            print(f"  Scaled offset: {int(900 * close_match.scale)}px (was 900px hardcoded)")
+        elif deposit_match.found:
+            print(f"  Deposit button at: ({deposit_match.x}, {deposit_match.y})")
+            print(f"  Detected scale: {deposit_match.scale:.2f}x")
+
+        # Crop to bank region
         search_image = window_img[y:y+height, x:x+width]
         offset_x = x
         offset_y = y
-        print(f"✓ Cropped search area to {width}x{height} (bank items only)")
+        print(f"✓ Search area restricted to bank items only")
     else:
+        print("⚠ Could not detect bank region - searching full image")
+        print("  Make sure bank is open with close/deposit button visible")
         search_image = window_img
         offset_x = 0
         offset_y = 0
 
     print()
 
+    # First, show the HYBRID color+template approach (what the bot actually uses)
+    print("=" * 70)
+    print("HYBRID COLOR + TEMPLATE DETECTION (What the bot uses)")
+    print("=" * 70)
+    print()
+
     grimy_templates = config.get('herbs', {}).get('grimy', [])
-    print(f"Testing {len(grimy_templates)} herb templates...")
+    template_names = [h['template'] for h in grimy_templates]
+
+    # Show color pre-filtering
+    print("Step 1: Color Pre-Filtering")
+    print("-" * 70)
+    color_candidates = matcher.filter_templates_by_color(
+        search_image,
+        template_names,
+        top_k=3
+    )
+
+    print(f"Color analysis of {len(template_names)} templates:")
+    print(f"Top 3 matches by color similarity:")
+    for i, (template_name, similarity) in enumerate(color_candidates):
+        herb_name = template_name.replace('grimy_', '').replace('.png', '')
+        print(f"  {i+1}. {herb_name:15} - Color similarity: {similarity:.3f}")
+
+    print()
+    print("Step 2: Template Matching on Filtered Candidates")
+    print("-" * 70)
+
+    # Now run template matching on the filtered candidates
+    best_hybrid_match = None
+    best_hybrid_conf = 0.0
+    best_hybrid_name = None
+
+    for template_name, color_sim in color_candidates:
+        herb_name = template_name.replace('grimy_', '').replace('.png', '')
+        match = matcher.match_bottom_region(search_image, template_name, 0.65)
+
+        print(f"  {herb_name:15} - Template conf: {match.confidence:.3f} {'✓' if match.found else '✗'}")
+
+        if match.found and match.confidence > best_hybrid_conf:
+            best_hybrid_conf = match.confidence
+            best_hybrid_match = match
+            best_hybrid_name = herb_name
+
+    print()
+    if best_hybrid_match:
+        print(f"✓ HYBRID RESULT: {best_hybrid_name} (confidence: {best_hybrid_conf:.3f})")
+        # Adjust coords for offset
+        best_hybrid_match.x += offset_x
+        best_hybrid_match.y += offset_y
+        best_hybrid_match.center_x += offset_x
+        best_hybrid_match.center_y += offset_y
+    else:
+        print("✗ No match found with hybrid approach")
+
+    print()
+    print()
+    print("=" * 70)
+    print("INDIVIDUAL TEMPLATE ANALYSIS (For diagnostic purposes)")
+    print("=" * 70)
+    print()
+    print(f"Testing all {len(grimy_templates)} herb templates...")
     print()
     results = []
 
@@ -267,35 +336,28 @@ def main():
 
     print()
 
-    if not best['region_found']:
-        print("⚠ WARNING: Best match did not pass threshold (0.70)")
-        print("  This means the bot will NOT detect this herb in the bank.")
-        print()
-        print("Possible issues:")
-        print("  - Wrong herb type in bank (not matching templates)")
-        print("  - Templates captured at different zoom level")
-        print("  - Stack numbers interfering too much")
-        print()
-        print("Solutions:")
-        print("  1. Ensure you have the right herb type (check config)")
-        print("  2. Recapture templates at your current zoom level")
-        print("  3. Try lowering confidence threshold in config")
-        print()
-    else:
-        print("✓ Detection working! The bot should find this herb.")
-        print()
+    # Visualize HYBRID detection result
+    print("=" * 70)
+    print("VISUALIZATION")
+    print("=" * 70)
 
-    # Visualize best match
-    if best['region_found']:
+    if best_hybrid_match:
         vis_img = window_img.copy()
 
-        # Draw bank region rectangle if detected
+        # Draw bank region rectangle if detected (YELLOW)
         if bank_region:
             x, y, width, height = bank_region
-            cv2.rectangle(vis_img, (x, y), (x + width, y + height), (0, 255, 255), 2)
+            cv2.rectangle(vis_img, (x, y), (x + width, y + height), (0, 255, 255), 3)
+
+            # Add label with scale info
+            if close_match.found:
+                label = f"Bank Search Area (scale: {close_match.scale:.2f}x)"
+            else:
+                label = "Bank Search Area"
+
             cv2.putText(
                 vis_img,
-                "Bank Search Area",
+                label,
                 (x + 10, y + 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
@@ -303,27 +365,26 @@ def main():
                 2
             )
 
-        # Use the position from our results (already adjusted for offset)
-        match_x, match_y = best['region_pos']
+        # Draw HYBRID detection result (GREEN)
+        match_x = best_hybrid_match.center_x
+        match_y = best_hybrid_match.center_y
+        w = best_hybrid_match.width
+        h = best_hybrid_match.height
 
-        # We need width/height, so re-match just to get dimensions
-        temp_match = matcher.match_bottom_region(search_image, best['template'], 0.65)
-
-        # Draw herb match box (green)
         cv2.rectangle(
             vis_img,
-            (match_x - temp_match.width // 2, match_y - temp_match.height // 2),
-            (match_x + temp_match.width // 2, match_y + temp_match.height // 2),
+            (match_x - w // 2, match_y - h // 2),
+            (match_x + w // 2, match_y + h // 2),
             (0, 255, 0),
             3
         )
 
         # Add label
-        label = f"{best['name']}: {best['region_conf']:.3f}"
+        label = f"HYBRID: {best_hybrid_name}: {best_hybrid_conf:.3f}"
         cv2.putText(
             vis_img,
             label,
-            (match_x - temp_match.width // 2, match_y - temp_match.height // 2 - 10),
+            (match_x - w // 2, match_y - h // 2 - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
             (0, 255, 0),
@@ -333,12 +394,12 @@ def main():
         # Show visualization window
         print()
         print("Opening visualization window...")
-        print("=" * 70)
-        print("VISUALIZATION:")
-        print("  - YELLOW box = Bank search area")
-        print("  - GREEN box = Detected herb")
-        print("  - Label shows herb name and confidence")
-        print("=" * 70)
+        print()
+        print("LEGEND:")
+        print("  - YELLOW box = Bank search area (scale-aware!)")
+        print("  - GREEN box = Hybrid detection result")
+        print("  - Label shows: detection method, herb name, confidence")
+        print()
 
         window_name = "Bank Herb Detection - Press any key to close"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -350,7 +411,6 @@ def main():
         except:
             pass  # Not all platforms support this
 
-        print()
         print("✓ Window opened! Look for the image window.")
         print("  (It may appear behind other windows)")
         print()
@@ -358,7 +418,18 @@ def main():
         cv2.waitKey(0)
         cv2.destroyAllWindows()
     else:
-        print("⚠ No match found - skipping visualization")
+        print("⚠ No hybrid match found - skipping visualization")
+        print()
+        if not best['region_found']:
+            print("Possible issues:")
+            print("  - Wrong herb type in bank (not matching templates)")
+            print("  - Templates captured at different zoom level")
+            print("  - Bank region detection failed")
+            print()
+            print("Solutions:")
+            print("  1. Ensure you have the right herb type in bank")
+            print("  2. Recapture templates at your current zoom level")
+            print("  3. Check that bank close/deposit button is visible")
 
     print()
     print("=" * 70)
