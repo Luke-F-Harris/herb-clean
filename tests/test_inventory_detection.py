@@ -10,8 +10,9 @@ import numpy as np
 import yaml
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# Add src to path (go up to project root, then into src)
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root / "src"))
 
 from vision.screen_capture import ScreenCapture
 from vision.inventory_auto_detect import InventoryAutoDetector, InventoryRegion
@@ -19,7 +20,7 @@ from vision.inventory_auto_detect import InventoryAutoDetector, InventoryRegion
 
 def load_config():
     """Load configuration from YAML file."""
-    config_path = Path(__file__).parent / "config" / "default_config.yaml"
+    config_path = project_root / "config" / "default_config.yaml"
 
     if not config_path.exists():
         print(f"⚠ Config not found: {config_path}")

@@ -11,12 +11,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "osrs_herblore"))
+# Add src to path (go up to project root, then into src)
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root / "src"))
 
-from src.vision.screen_capture import ScreenCapture
-from src.vision.template_matcher import TemplateMatcher
-from src.core.config_manager import ConfigManager
+from vision.screen_capture import ScreenCapture
+from vision.template_matcher import TemplateMatcher
+from core.config_manager import ConfigManager
 
 
 def draw_match_box(image, match, label, color, confidence):

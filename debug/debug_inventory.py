@@ -6,7 +6,9 @@ import cv2
 import yaml
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# Add src to path (go up to project root, then into src)
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root / "src"))
 
 from vision.screen_capture import ScreenCapture
 from vision.template_matcher import TemplateMatcher
@@ -19,12 +21,12 @@ def main():
     print("Inventory Detection Debugger")
     print("=" * 70)
 
-    # Load config
-    config_path = Path(__file__).parent / "config" / "default_config.yaml"
+    # Load config (from project root)
+    config_path = project_root / "config" / "default_config.yaml"
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
-    templates_dir = Path(__file__).parent / "config" / "templates"
+    templates_dir = project_root / "config" / "templates"
 
     # Initialize
     screen = ScreenCapture("RuneLite")

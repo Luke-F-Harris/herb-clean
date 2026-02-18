@@ -40,14 +40,20 @@ except ImportError as e:
 
 print()
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# Add src to path (go up to project root, then into src)
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root / "src"))
+
+print(f"Project root: {project_root}")
+print(f"Adding to path: {project_root / 'src'}")
+print()
 
 try:
     from vision.screen_capture import ScreenCapture
     print("✓ ScreenCapture imported")
 except ImportError as e:
     print(f"✗ Failed to import ScreenCapture: {e}")
+    print(f"  Looked in: {project_root / 'src' / 'vision'}")
     input("Press ENTER to exit...")
     sys.exit(1)
 
@@ -79,8 +85,9 @@ def main():
     print()
     print("Starting detection...")
 
-    # Load config
-    config_path = Path(__file__).parent / "config" / "default_config.yaml"
+    # Load config (from project root)
+    project_root = Path(__file__).parent.parent
+    config_path = project_root / "config" / "default_config.yaml"
     print(f"Loading config from: {config_path}")
 
     try:
@@ -92,7 +99,7 @@ def main():
         return 1
 
     # Initialize
-    templates_dir = Path(__file__).parent / "config" / "templates"
+    templates_dir = project_root / "config" / "templates"
     print(f"Templates directory: {templates_dir}")
 
     screen = ScreenCapture("RuneLite")

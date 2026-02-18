@@ -7,14 +7,19 @@ This script validates:
 3. Overall detection accuracy
 """
 
+import sys
 import cv2
 import numpy as np
 import yaml
 from pathlib import Path
 
-from src.vision.screen_capture import ScreenCapture
-from src.vision.template_matcher import TemplateMatcher
-from src.vision.bank_detector import BankDetector
+# Add src to path (go up to project root, then into src)
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root / "src"))
+
+from vision.screen_capture import ScreenCapture
+from vision.template_matcher import TemplateMatcher
+from vision.bank_detector import BankDetector
 
 
 def draw_region(image, region, color, label):
@@ -55,12 +60,12 @@ def main():
     print("=" * 80)
 
     # Load config
-    config_path = Path("config/default_config.yaml")
+    config_path = project_root / "config" / "default_config.yaml"
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
     # Initialize components
-    templates_dir = Path("config/templates")
+    templates_dir = project_root / "config" / "templates"
 
     screen = ScreenCapture(config['window']['title'])
 

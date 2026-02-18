@@ -34,13 +34,14 @@ def compare_histograms(hist1: np.ndarray, hist2: np.ndarray) -> float:
 
 def main():
     """Analyze herb template colors."""
-    # Load config
-    config_path = Path(__file__).parent / "config" / "default_config.yaml"
+    # Load config (from project root)
+    project_root = Path(__file__).parent.parent
+    config_path = project_root / "config" / "default_config.yaml"
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
     # Get herb templates
-    templates_dir = Path(__file__).parent / "config" / "templates"
+    templates_dir = project_root / "config" / "templates"
     herb_configs = config['herbs']['grimy']
 
     # Load all herb templates and compute histograms
