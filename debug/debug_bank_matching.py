@@ -188,25 +188,41 @@ def main():
     print("-" * 40)
     if close_match.found:
         print(f"  ✓ {close_template}: FOUND (conf: {close_match.confidence:.3f})")
+        print(f"      Position: ({close_match.x}, {close_match.y})")
+        print(f"      Size: {close_match.width}x{close_match.height}")
+        print(f"      Template scale: {close_match.scale:.2f}x (NOT used for offsets)")
+        print(f"      Button-based scale: {close_match.width / 21.0:.2f}x (21px reference)")
     else:
         print(f"  ✗ {close_template}: NOT FOUND (conf: {close_match.confidence:.3f})")
     if deposit_match.found:
         print(f"  ✓ {deposit_template}: FOUND (conf: {deposit_match.confidence:.3f})")
+        print(f"      Position: ({deposit_match.x}, {deposit_match.y})")
+        print(f"      Size: {deposit_match.width}x{deposit_match.height}")
+        print(f"      Template scale: {deposit_match.scale:.2f}x (NOT used for offsets)")
+        print(f"      Button-based scale: {deposit_match.width / 35.0:.2f}x (35px reference)")
     else:
         print(f"  ✗ {deposit_template}: NOT FOUND (conf: {deposit_match.confidence:.3f})")
+
+    # Show which detection method will be used
+    print()
+    if close_match.found and deposit_match.found:
+        dx = close_match.center_x - deposit_match.center_x
+        dy = deposit_match.center_y - close_match.center_y
+        print(f"  Detection method: DUAL-ANCHOR (most reliable)")
+        print(f"      Horizontal offset (dx): {dx}px")
+        print(f"      Vertical span (dy): {dy}px")
+        print(f"      Calculated panel width: {int(dx * 2.2)}px")
+    elif close_match.found:
+        print(f"  Detection method: SINGLE-ANCHOR (close button, size-based scale)")
+    elif deposit_match.found:
+        print(f"  Detection method: SINGLE-ANCHOR (deposit button, size-based scale)")
+    else:
+        print(f"  Detection method: NONE (no anchors found)")
     print()
 
     if bank_region:
         x, y, width, height = bank_region
         print(f"✓ Bank region detected: ({x}, {y}) {width}x{height}")
-
-        if close_match.found:
-            print(f"  Close button at: ({close_match.x}, {close_match.y})")
-            print(f"  Detected scale: {close_match.scale:.2f}x")
-            print(f"  Scaled offset: {int(900 * close_match.scale)}px (was 900px hardcoded)")
-        elif deposit_match.found:
-            print(f"  Deposit button at: ({deposit_match.x}, {deposit_match.y})")
-            print(f"  Detected scale: {deposit_match.scale:.2f}x")
 
         # Crop to bank region
         search_image = window_img[y:y+height, x:x+width]
@@ -390,11 +406,15 @@ def main():
         x, y, width, height = bank_region
         cv2.rectangle(vis_img, (x, y), (x + width, y + height), (0, 255, 255), 3)
 
-        # Add label with scale info
-        if close_match.found:
-            label = f"Bank Search Area (scale: {close_match.scale:.2f}x, {width}x{height})"
+        # Add label with detection method info
+        if close_match.found and deposit_match.found:
+            method = "dual-anchor"
+        elif close_match.found:
+            method = "close-btn"
         else:
-            label = f"Bank Search Area ({width}x{height})"
+            method = "deposit-btn"
+
+        label = f"Bank Search Area ({method}, {width}x{height})"
 
         cv2.putText(
             vis_img,
@@ -439,8 +459,9 @@ def main():
             -1
         )
 
-        # Add label
-        close_label = f"Close Button (scale: {close_match.scale:.2f}x)"
+        # Add label with button-based scale instead of template scale
+        button_scale = close_match.width / 21.0
+        close_label = f"Close (btn-scale: {button_scale:.2f}x)"
         cv2.putText(
             vis_img,
             close_label,
@@ -448,6 +469,106 @@ def main():
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
             close_color,
+            2
+        )
+
+    # Draw deposit button location for debugging (CYAN)
+    if deposit_match.found:
+        deposit_color = (255, 255, 0)  # Cyan
+
+        # Draw deposit button bounding box
+        cv2.rectangle(
+            vis_img,
+            (deposit_match.x, deposit_match.y),
+            (deposit_match.x + deposit_match.width, deposit_match.y + deposit_match.height),
+            deposit_color,
+            3
+        )
+
+        # Draw circle at center
+        cv2.circle(
+            vis_img,
+            (deposit_match.center_x, deposit_match.center_y),
+            8,
+            deposit_color,
+            -1
+        )
+
+        # Add label with button-based scale
+        button_scale = deposit_match.width / 35.0
+        deposit_label = f"Deposit (btn-scale: {button_scale:.2f}x)"
+        cv2.putText(
+            vis_img,
+            deposit_label,
+            (deposit_match.x - 50, deposit_match.y + deposit_match.height + 25),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            deposit_color,
+            2
+        )
+
+    # If dual-anchor, draw the geometry lines showing triangulation
+    if close_match.found and deposit_match.found:
+        # Draw line connecting the two anchor points (WHITE)
+        cv2.line(
+            vis_img,
+            (close_match.center_x, close_match.center_y),
+            (deposit_match.center_x, deposit_match.center_y),
+            (255, 255, 255),
+            2
+        )
+
+        # Draw horizontal and vertical components (dashed effect with multiple lines)
+        # Horizontal line from deposit to directly below close
+        cv2.line(
+            vis_img,
+            (deposit_match.center_x, deposit_match.center_y),
+            (close_match.center_x, deposit_match.center_y),
+            (200, 200, 200),
+            1
+        )
+        # Vertical line from that point up to close
+        cv2.line(
+            vis_img,
+            (close_match.center_x, deposit_match.center_y),
+            (close_match.center_x, close_match.center_y),
+            (200, 200, 200),
+            1
+        )
+
+        # Label the distances
+        dx = close_match.center_x - deposit_match.center_x
+        dy = deposit_match.center_y - close_match.center_y
+        mid_x = (close_match.center_x + deposit_match.center_x) // 2
+        mid_y = (close_match.center_y + deposit_match.center_y) // 2
+
+        cv2.putText(
+            vis_img,
+            f"dx={dx}",
+            (mid_x, deposit_match.center_y + 20),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (200, 200, 200),
+            1
+        )
+        cv2.putText(
+            vis_img,
+            f"dy={dy}",
+            (close_match.center_x + 10, mid_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (200, 200, 200),
+            1
+        )
+
+        # Add "DUAL-ANCHOR" label
+        cv2.putText(
+            vis_img,
+            "DUAL-ANCHOR DETECTION",
+            (mid_x - 80, mid_y - 20),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
             2
         )
 

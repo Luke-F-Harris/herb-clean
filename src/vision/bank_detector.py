@@ -161,15 +161,15 @@ class BankDetector:
         return None
 
     def _get_bank_item_region(self, screen_image: np.ndarray) -> Optional[tuple[int, int, int, int]]:
-        """Detect the bank item grid region to restrict search area.
+        """Detect bank item grid using dual-anchor triangulation.
 
-        Uses scale-aware offsets to work correctly across different resolutions
-        and zoom levels (4K, 1080p, RuneLite zoom settings).
+        Uses both close button (top-right) and deposit button (bottom-center)
+        to calculate the actual bank region without relying on unreliable
+        template matching scale factors.
 
         Returns:
             Tuple of (x, y, width, height) for bank item region, or None
         """
-        # Find close button or deposit button to locate bank interface
         close_match = self.matcher.match(
             screen_image, self.config.get("close_button_template", "bank_close.png")
         )
@@ -177,54 +177,67 @@ class BankDetector:
             screen_image, self.config.get("deposit_all_template", "deposit_all.png")
         )
 
-        if not (close_match.found or deposit_match.found):
-            return None
+        # Method 1: Dual-anchor (most reliable)
+        if close_match.found and deposit_match.found:
+            # Close button is at top-right, deposit is at bottom-center
+            # The horizontal distance from deposit center to close center
+            # tells us half the panel width
+            dx = close_match.center_x - deposit_match.center_x
+            dy = deposit_match.center_y - close_match.center_y
 
-        # Use close button as primary anchor (top-right of bank)
+            # Panel width is roughly 2x the horizontal offset
+            panel_width = int(dx * 2.2)  # Close is slightly right of center
+
+            # Item grid is inset from panel edges
+            # Left edge = close_x - panel_width + small_margin
+            # Top edge = close_y + button_height
+            # Width/height = derived from dy (vertical span)
+
+            item_grid_left = close_match.x - panel_width + 20
+            item_grid_top = close_match.y + close_match.height + 10
+            item_grid_width = panel_width - 40
+            item_grid_height = dy - close_match.height - 60
+
+            return (
+                max(0, item_grid_left),
+                max(0, item_grid_top),
+                min(item_grid_width, screen_image.shape[1] - item_grid_left),
+                min(item_grid_height, screen_image.shape[0] - item_grid_top)
+            )
+
+        # Method 2: Single anchor fallback with FIXED offsets (no scale multiplication)
+        # Use the detected button SIZE as the scale indicator, not template scale
         if close_match.found:
-            # Get scale factor from template matching
-            # This adapts to different resolutions/zoom levels
-            scale = close_match.scale
+            # The close button size tells us the UI scale
+            # Standard close button is ~21x21 at 1080p
+            button_scale = close_match.width / 21.0
 
-            # Scale the offsets proportionally
-            # Base measurements from actual OSRS bank panel at 1920x1080:
-            # - Bank panel width: ~520 pixels
-            # - Close button is ~10px from right edge of panel
-            # - So offset from close button to left edge: 520 - 10 = 510px
-            # - Item grid starts ~50px from top, is ~480px wide, ~460px tall
-            offset_x = int(510 * scale)  # Distance from close button to left edge of panel
-            offset_y = int(50 * scale)   # Distance from close button to top of item grid
-            bank_width = int(480 * scale)  # Item grid width
-            bank_height = int(460 * scale)  # Item grid height
+            offset_x = int(510 * button_scale)
+            offset_y = int(50 * button_scale)
+            bank_width = int(480 * button_scale)
+            bank_height = int(460 * button_scale)
 
-            # Calculate bank item region
             x = max(0, close_match.x - offset_x)
-            y = max(0, close_match.y - offset_y)
-            width = min(bank_width, screen_image.shape[1] - x)
-            height = min(bank_height, screen_image.shape[0] - y)
+            y = max(0, close_match.y + offset_y)
 
-            return (x, y, width, height)
+            return (x, y, bank_width, bank_height)
 
-        # Fallback: use deposit button as anchor (bottom of bank)
-        elif deposit_match.found:
-            # Get scale factor for deposit button
-            scale = deposit_match.scale
+        # Method 3: Deposit button only fallback
+        if deposit_match.found:
+            # Use deposit button size as scale indicator
+            # Standard deposit button is ~35 pixels wide at 1080p
+            button_scale = deposit_match.width / 35.0
 
-            # Scale the offsets proportionally
-            # Deposit button is at bottom-center of bank panel
-            # Need to go up and left to find item grid
-            offset_x = int(240 * scale)  # Half panel width (deposit is centered)
-            offset_y = int(520 * scale)  # Distance from deposit to top of item grid
-            bank_width = int(480 * scale)
-            bank_height = int(460 * scale)
+            offset_x = int(240 * button_scale)
+            offset_y = int(520 * button_scale)
+            bank_width = int(480 * button_scale)
+            bank_height = int(460 * button_scale)
 
-            # Grid is centered above deposit button
             x = max(0, deposit_match.x - offset_x)
             y = max(0, deposit_match.y - offset_y)
-            width = min(bank_width, screen_image.shape[1] - x)
             height = min(bank_height, deposit_match.y - y)
 
-            return (x, y, width, height)
+            return (x, y, bank_width, height)
 
         return None
 
