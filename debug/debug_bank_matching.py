@@ -514,6 +514,89 @@ def main():
             )
             text_y += 25
 
+    # Draw bottom-left info box with detection summary
+    img_h, img_w = vis_img.shape[:2]
+
+    # Build info lines
+    info_lines = [
+        f"Threshold: {matcher.confidence_threshold:.2f}",
+        f"Best Conf: {best_hybrid_conf:.3f}",
+        f"Gap: {matcher.confidence_threshold - best_hybrid_conf:.3f}",
+        f"Result: {'PASS' if (best_hybrid_match and best_hybrid_match.found) else 'FAIL'}",
+        f"Herb: {best_hybrid_name or 'None'}",
+        f"Crop: 50% (bottom region)",
+    ]
+
+    # Add transparency info
+    if mask is not None:
+        info_lines.append(f"Alpha: YES ({100*mask_pixels/total_pixels:.0f}% opaque)")
+    else:
+        info_lines.append("Alpha: NO (no mask)")
+
+    # Calculate box dimensions
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.6
+    thickness = 2
+    line_height = 28
+    padding = 15
+
+    # Get max text width
+    max_width = 0
+    for line in info_lines:
+        (text_w, _), _ = cv2.getTextSize(line, font, font_scale, thickness)
+        max_width = max(max_width, text_w)
+
+    box_width = max_width + padding * 2
+    box_height = len(info_lines) * line_height + padding * 2
+
+    # Position at bottom-left
+    box_x = 10
+    box_y = img_h - box_height - 10
+
+    # Draw semi-transparent background
+    overlay = vis_img.copy()
+    cv2.rectangle(
+        overlay,
+        (box_x, box_y),
+        (box_x + box_width, box_y + box_height),
+        (40, 40, 40),  # Dark gray
+        -1
+    )
+    cv2.addWeighted(overlay, 0.85, vis_img, 0.15, 0, vis_img)
+
+    # Draw border
+    border_color = (0, 255, 0) if (best_hybrid_match and best_hybrid_match.found) else (0, 0, 255)
+    cv2.rectangle(
+        vis_img,
+        (box_x, box_y),
+        (box_x + box_width, box_y + box_height),
+        border_color,
+        2
+    )
+
+    # Draw text lines
+    text_y = box_y + padding + 20
+    for line in info_lines:
+        # Highlight result line
+        if line.startswith("Result:"):
+            color = (0, 255, 0) if "PASS" in line else (0, 0, 255)
+        elif line.startswith("Gap:"):
+            gap_val = matcher.confidence_threshold - best_hybrid_conf
+            color = (0, 255, 0) if gap_val <= 0 else (0, 165, 255)  # Green if passing, orange if gap
+        else:
+            color = (255, 255, 255)
+
+        cv2.putText(
+            vis_img,
+            line,
+            (box_x + padding, text_y),
+            font,
+            font_scale,
+            color,
+            thickness
+        )
+        text_y += line_height
+
     # ALWAYS show visualization window
     print()
     print("Opening visualization window...")
@@ -528,6 +611,7 @@ def main():
         else:
             print("  - RED box = Best match (FAILED threshold)")
     print("  - Text overlay (top-left) = Debug coordinates")
+    print("  - Text overlay (bottom-left) = Detection summary")
     print()
 
     window_name = "Bank Herb Detection - Press any key to close"
