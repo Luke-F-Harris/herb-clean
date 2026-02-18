@@ -1,6 +1,8 @@
 @echo off
 REM Windows Setup Script for OSRS Herb Cleaning Bot
-REM Run this script to set up the bot on Windows
+REM Run from project root: scripts\windows\setup_windows.bat
+
+cd /d "%~dp0\..\.."
 
 echo ========================================
 echo OSRS Herb Cleaning Bot - Windows Setup
@@ -57,10 +59,9 @@ echo ========================================
 echo.
 echo Next steps:
 echo 1. Open RuneLite
-echo 2. Capture template images (see README.md)
-echo 3. Run: .\venv\Scripts\activate.bat
-echo 4. Then: python .\src\main.py
+echo 2. Capture template images (see docs\README.md)
+echo 3. Run: scripts\windows\run_bot.bat
 echo.
-echo Or run run_bot.bat to start the bot
+echo Or activate venv and run: python main.py
 echo.
 pause

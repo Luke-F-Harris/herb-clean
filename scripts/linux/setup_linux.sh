@@ -1,5 +1,9 @@
 #!/bin/bash
 # Setup script for Linux
+# Run from project root: scripts/linux/setup_linux.sh
+
+# Change to project root
+cd "$(dirname "$0")/../.."
 
 echo "=========================================="
 echo "OSRS Herb Bot - Linux Setup"
@@ -48,6 +52,6 @@ echo "Setup Complete!"
 echo "=========================================="
 echo ""
 echo "To run the bot:"
-echo "  ./test_actions.sh    - Test all detections"
-echo "  ./run_bot.sh         - Run the bot"
+echo "  python main.py              - Run the bot"
+echo "  scripts/linux/test_actions.sh  - Test all detections"
 echo ""
