@@ -276,6 +276,7 @@ def main():
 
     # Show Test 1 result
     cv2.imshow("Test 1: Inventory Detection", test1_img)
+    cv2.waitKey(1)  # Allow window to render on Windows
     print("\nShowing inventory detection...")
     print("Press ENTER in this terminal to continue...")
     input()
@@ -336,6 +337,7 @@ def main():
 
     # Show Test 2 result
     cv2.imshow("Test 2: Bank Booth Detection", test2_img)
+    cv2.waitKey(1)  # Allow window to render on Windows
     print("\nShowing bank booth detection...")
     print("Press ENTER in this terminal to continue...")
     input()
@@ -406,6 +408,7 @@ def main():
 
     # Show Test 3 result
     cv2.imshow("Test 3: Bank Interface Detection", test3_img)
+    cv2.waitKey(1)  # Allow window to render on Windows
     print("\nShowing bank interface detection...")
     print("Press ENTER in this terminal to continue...")
     input()
@@ -454,6 +457,7 @@ def main():
 
     # Show Test 4 result
     cv2.imshow("Test 4: Grimy Herb Click Targets", test4_img)
+    cv2.waitKey(1)  # Allow window to render on Windows
     print("\nShowing grimy herb click targets...")
     print("Press ENTER in this terminal to continue...")
     input()
@@ -552,6 +556,7 @@ def main():
     # Show final composite
     print("\n" + "=" * 70)
     cv2.imshow("Test 5: Final Composite - All Detections", final_img)
+    cv2.waitKey(1)  # Allow window to render on Windows
     print("Showing final composite with ALL detections...")
     print("Press ENTER in this terminal to exit...")
     input()
