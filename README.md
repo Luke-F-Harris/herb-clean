@@ -132,6 +132,20 @@ breaks:
 
 ## Usage
 
+### Test Before Running
+
+**IMPORTANT:** Test all detections first:
+```powershell
+# Run comprehensive test
+test_actions.bat
+
+# Follow the prompts to test:
+# - Inventory detection
+# - Bank booth detection
+# - Bank interface elements
+# - Grimy herb detection
+```
+
 ### Windows
 
 ```powershell
