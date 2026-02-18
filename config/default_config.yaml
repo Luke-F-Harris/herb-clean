@@ -7,11 +7,11 @@ window:
   # Auto-detect inventory position (recommended)
   auto_detect_inventory: true
 
-  # Optional: Template-based detection (most reliable)
-  # Capture a screenshot of your FULL inventory (all 28 slots, empty or with items)
+  # Optional: Template-based detection (most reliable for Resizable - Classic layout)
+  # Run setup_inventory.bat to capture your inventory template
+  # OR manually capture a screenshot of your FULL inventory (all 28 slots)
   # Save as inventory_template.png in config/templates/
-  # This works better than color detection with tab overlays
-  inventory_template: "inventory_template.png"  # Set to null/empty to disable
+  inventory_template: null  # Set to "inventory_template.png" after capturing
 
   # Manual inventory position (used as fallback if auto-detect fails)
   # If auto-detect can't find inventory, it will use smart default based on window size
