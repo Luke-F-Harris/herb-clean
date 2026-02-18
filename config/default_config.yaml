@@ -1,137 +1,106 @@
-# OSRS Herb Cleaning Bot Configuration
-# =====================================
-
-# Window settings
 window:
-  title: "RuneLite"
-  # Auto-detect inventory position (recommended)
+  title: RuneLite
   auto_detect_inventory: true
-
-  # Optional: Template-based detection (most reliable for Resizable - Classic layout)
-  # Run setup_inventory.bat to capture your inventory template
-  # OR manually capture a screenshot of your FULL inventory (all 28 slots)
-  # Save as inventory_template.png in config/templates/
-  inventory_template: null  # Set to "inventory_template.png" after capturing
-
-  # Manual inventory position (used as fallback if auto-detect fails)
-  # If auto-detect can't find inventory, it will use smart default based on window size
+  inventory_template: inventory_template.png
   inventory:
-    x: 563
-    y: 208
-    slot_width: 42
-    slot_height: 36
+    x: 3482
+    y: 1649
+    slot_width: 67
+    slot_height: 54
     cols: 4
     rows: 7
-
-# Timing settings (milliseconds)
 timing:
-  # Herb cleaning delays
   click_herb_mean: 600
   click_herb_std: 150
   click_herb_min: 350
   click_herb_max: 1200
-
-  # Bank interaction delays
   bank_action_mean: 800
   bank_action_std: 200
   bank_action_min: 500
   bank_action_max: 1500
-
-  # Post-action delays
   after_bank_open: 400
   after_deposit: 300
   after_withdraw: 300
   after_bank_close: 200
-
-# Mouse movement settings
 mouse:
-  speed_range: [200, 400]  # pixels per second
-  overshoot_chance: 0.30
-  overshoot_distance: [5, 15]  # pixels
-  curve_variance: 0.3  # control point variance
-
-# Click settings
+  speed_range:
+  - 200
+  - 400
+  overshoot_chance: 0.3
+  overshoot_distance:
+  - 5
+  - 15
+  curve_variance: 0.3
 click:
-  # Gaussian distribution for position within target
-  position_sigma_ratio: 6  # sigma = width / this value
-  # Click duration (gamma distribution)
-  duration_mean: 100  # ms
+  position_sigma_ratio: 6
+  duration_mean: 100
   duration_min: 50
   duration_max: 200
-
-# Break settings (seconds)
 breaks:
   micro:
-    interval: [480, 900]  # 8-15 minutes
-    duration: [2, 10]
+    interval:
+    - 480
+    - 900
+    duration:
+    - 2
+    - 10
   long:
-    interval: [2700, 5400]  # 45-90 minutes
-    duration: [60, 300]  # 1-5 minutes
-
-# Fatigue simulation
+    interval:
+    - 2700
+    - 5400
+    duration:
+    - 60
+    - 300
 fatigue:
   onset_minutes: 30
   max_slowdown_percent: 50
   misclick_rate_start: 0.01
   misclick_rate_max: 0.05
-
-# Attention drift
 attention:
-  drift_chance: 0.03  # 3% per action
+  drift_chance: 0.03
   drift_targets:
-    - name: "minimap"
-      weight: 3
-    - name: "chat"
-      weight: 2
-    - name: "random"
-      weight: 1
-
-# Template matching
+  - name: minimap
+    weight: 3
+  - name: chat
+    weight: 2
+  - name: random
+    weight: 1
 vision:
-  confidence_threshold: 0.75  # Lowered for better matching across zoom levels
+  confidence_threshold: 0.75
   multi_scale: true
-  scale_range: [0.9, 1.1]  # Narrowed range to reduce false positives
-  scale_steps: 3  # Fewer steps to reduce noise from wrong scales
-
-# Safety settings
+  scale_range:
+  - 0.9
+  - 1.1
+  scale_steps: 3
 safety:
-  emergency_stop_key: "f12"
+  emergency_stop_key: f12
   max_session_hours: 4
-  stats_log_interval: 60  # seconds
-
-# Herb types (add templates as needed)
+  stats_log_interval: 60
 herbs:
   grimy:
-    - name: "grimy_ranarr"
-      template: "grimy_ranarr.png"
-    - name: "grimy_toadflax"
-      template: "grimy_toadflax.png"
-    - name: "grimy_irit"
-      template: "grimy_irit.png"
-    - name: "grimy_avantoe"
-      template: "grimy_avantoe.png"
-    - name: "grimy_kwuarm"
-      template: "grimy_kwuarm.png"
-    - name: "grimy_snapdragon"
-      template: "grimy_snapdragon.png"
-    - name: "grimy_cadantine"
-      template: "grimy_cadantine.png"
-    - name: "grimy_lantadyme"
-      template: "grimy_lantadyme.png"
-    - name: "grimy_dwarf_weed"
-      template: "grimy_dwarf_weed.png"
-    - name: "grimy_torstol"
-      template: "grimy_torstol.png"
-
-# Bank detection
+  - name: grimy_ranarr
+    template: grimy_ranarr.png
+  - name: grimy_toadflax
+    template: grimy_toadflax.png
+  - name: grimy_irit
+    template: grimy_irit.png
+  - name: grimy_avantoe
+    template: grimy_avantoe.png
+  - name: grimy_kwuarm
+    template: grimy_kwuarm.png
+  - name: grimy_snapdragon
+    template: grimy_snapdragon.png
+  - name: grimy_cadantine
+    template: grimy_cadantine.png
+  - name: grimy_lantadyme
+    template: grimy_lantadyme.png
+  - name: grimy_dwarf_weed
+    template: grimy_dwarf_weed.png
+  - name: grimy_torstol
+    template: grimy_torstol.png
 bank:
-  booth_template: "bank_booth.png"
-  chest_template: "bank_chest.png"
-  deposit_all_template: "deposit_all.png"
-  close_button_template: "bank_close.png"  # Optional - can use ESC only if missing
-
-  # Bank closing method (varies for human-like behavior)
-  # esc_chance: probability of using ESC key (vs clicking X button)
-  # Real players mix both methods
-  # Set to 1.0 to always use ESC (if you don't have close_button template)
-  esc_chance: 0.70  # 70% ESC, 30% click close button
+  booth_template: bank_booth.png
+  chest_template: bank_chest.png
+  deposit_all_template: deposit_all.png
+  close_button_template: bank_close.png
+  esc_chance: 0.7
