@@ -3,13 +3,64 @@
 
 import sys
 from pathlib import Path
-import cv2
-import yaml
 
+print("Starting debug script...")
+print(f"Python version: {sys.version}")
+print(f"Script location: {Path(__file__).parent}")
+print()
+
+# Check imports
+print("Checking imports...")
+try:
+    import cv2
+    print("✓ cv2 (OpenCV) imported")
+except ImportError as e:
+    print(f"✗ Failed to import cv2: {e}")
+    print("  Install with: pip install opencv-python")
+    input("Press ENTER to exit...")
+    sys.exit(1)
+
+try:
+    import yaml
+    print("✓ yaml imported")
+except ImportError as e:
+    print(f"✗ Failed to import yaml: {e}")
+    print("  Install with: pip install pyyaml")
+    input("Press ENTER to exit...")
+    sys.exit(1)
+
+try:
+    import numpy as np
+    print("✓ numpy imported")
+except ImportError as e:
+    print(f"✗ Failed to import numpy: {e}")
+    print("  Install with: pip install numpy")
+    input("Press ENTER to exit...")
+    sys.exit(1)
+
+print()
+
+# Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from vision.screen_capture import ScreenCapture
-from vision.template_matcher import TemplateMatcher
+try:
+    from vision.screen_capture import ScreenCapture
+    print("✓ ScreenCapture imported")
+except ImportError as e:
+    print(f"✗ Failed to import ScreenCapture: {e}")
+    input("Press ENTER to exit...")
+    sys.exit(1)
+
+try:
+    from vision.template_matcher import TemplateMatcher
+    print("✓ TemplateMatcher imported")
+except ImportError as e:
+    print(f"✗ Failed to import TemplateMatcher: {e}")
+    input("Press ENTER to exit...")
+    sys.exit(1)
+
+print("✓ All imports successful")
+print()
 
 
 def main():
@@ -219,4 +270,23 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        exit_code = main()
+        print()
+        print("Press ENTER to close this window...")
+        input()
+        sys.exit(exit_code)
+    except Exception as e:
+        print()
+        print("=" * 70)
+        print("FATAL ERROR")
+        print("=" * 70)
+        print(f"Error: {e}")
+        print()
+        print("Full traceback:")
+        import traceback
+        traceback.print_exc()
+        print()
+        print("Press ENTER to close this window...")
+        input()
+        sys.exit(1)
