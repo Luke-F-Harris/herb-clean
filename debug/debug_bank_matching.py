@@ -249,8 +249,8 @@ def main():
 
     for template_name, color_sim in color_candidates:
         herb_name = template_name.replace('grimy_', '').replace('.png', '')
-        # Using 50% region to avoid 4-digit stack numbers
-        match = matcher.match_bottom_region(search_image, template_name, 0.50)
+        # Using 60% region - balance between avoiding text and keeping template data
+        match = matcher.match_bottom_region(search_image, template_name, 0.60)
 
         passed = "✓ PASS" if match.found else f"✗ FAIL (threshold: {matcher.confidence_threshold})"
         print(f"  {herb_name:15} - Confidence: {match.confidence:.3f} {passed}")
@@ -300,7 +300,7 @@ def main():
         # Test both methods on bank region (or full image if no region)
         try:
             standard_match = matcher.match(search_image, template_name)
-            region_match = matcher.match_bottom_region(search_image, template_name, 0.50)
+            region_match = matcher.match_bottom_region(search_image, template_name, 0.60)
 
             # Adjust coordinates for offset
             if standard_match.found:
@@ -479,7 +479,7 @@ def main():
         f"Gap: {matcher.confidence_threshold - best_hybrid_conf:.3f}",
         f"Result: {'PASS' if (best_hybrid_match and best_hybrid_match.found) else 'FAIL'}",
         f"Herb: {best_hybrid_name or 'None'}",
-        f"Crop: 50% (bottom region)",
+        f"Crop: 60% (bottom region)",
     ]
 
     # Add transparency info

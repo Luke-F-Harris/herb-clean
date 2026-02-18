@@ -299,7 +299,7 @@ class TemplateMatcher:
         self,
         image: np.ndarray,
         template_name: str,
-        region_percentage: float = 0.50,  # Reduced from 0.65 to avoid 4-digit stack numbers
+        region_percentage: float = 0.60,  # Balance: avoid stack text but keep enough template
         method: int = cv2.TM_CCOEFF_NORMED,
     ) -> MatchResult:
         """Match template using only bottom portion of image/template.
@@ -310,7 +310,7 @@ class TemplateMatcher:
         Args:
             image: BGR image to search in
             template_name: Template filename to search for
-            region_percentage: Percentage of height to use (0.0-1.0), default 0.50
+            region_percentage: Percentage of height to use (0.0-1.0), default 0.60
             method: OpenCV template matching method
 
         Returns:
