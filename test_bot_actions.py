@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from vision.screen_capture import ScreenCapture
-from vision.template_matcher import TemplateMatcher
+from vision.template_matcher import TemplateMatcher, MatchResult
 from vision.inventory_detector import InventoryDetector
 from vision.bank_detector import BankDetector
 
@@ -276,7 +276,7 @@ def main():
 
     # Show Test 1 result
     cv2.imshow("Test 1: Inventory Detection", test1_img)
-    cv2.waitKey(1)  # Allow window to render on Windows
+    cv2.waitKey(100)  # Allow window to render on Windows (100ms)
     print("\nShowing inventory detection...")
     print("Press ENTER in this terminal to continue...")
     input()
@@ -293,23 +293,40 @@ def main():
     print("=" * 70)
     print("Make sure you're standing near a bank booth or chest.\n")
 
+    # Check if bank templates exist
+    booth_template_path = templates_dir / config.get('bank', {}).get('booth_template', 'bank_booth.png')
+    chest_template_path = templates_dir / config.get('bank', {}).get('chest_template', 'bank_chest.png')
+
+    has_booth_template = booth_template_path.exists()
+    has_chest_template = chest_template_path.exists()
+
     # Capture fresh screenshot
     window_img = screen.capture_window()
 
-    # Get full match result (not just position)
-    booth_match = matcher.match(
-        window_img,
-        config.get('bank', {}).get('booth_template', 'bank_booth.png')
-    )
+    booth_match = None
 
-    if not booth_match.found:
-        # Try chest as fallback
-        booth_match = matcher.match(
-            window_img,
-            config.get('bank', {}).get('chest_template', 'bank_chest.png')
-        )
+    if has_booth_template or has_chest_template:
+        print("Searching for bank booth/chest (this may take a moment on large screens)...")
 
-    if booth_match.found:
+        # Get full match result (not just position)
+        if has_booth_template:
+            booth_match = matcher.match(
+                window_img,
+                config.get('bank', {}).get('booth_template', 'bank_booth.png')
+            )
+
+        if has_chest_template and (booth_match is None or not booth_match.found):
+            # Try chest as fallback
+            booth_match = matcher.match(
+                window_img,
+                config.get('bank', {}).get('chest_template', 'bank_chest.png')
+            )
+    else:
+        print("⚠ Skipping: No bank booth/chest templates found")
+        print("  Bank booth templates must be captured manually (they vary by location)")
+        booth_match = MatchResult(found=False, confidence=0.0, x=0, y=0, width=0, height=0, center_x=0, center_y=0)
+
+    if booth_match and booth_match.found:
         # Convert to screen coordinates
         bounds = screen.window_bounds
         if bounds:
@@ -337,7 +354,7 @@ def main():
 
     # Show Test 2 result
     cv2.imshow("Test 2: Bank Booth Detection", test2_img)
-    cv2.waitKey(1)  # Allow window to render on Windows
+    cv2.waitKey(100)  # Allow window to render on Windows (100ms)
     print("\nShowing bank booth detection...")
     print("Press ENTER in this terminal to continue...")
     input()
@@ -408,7 +425,7 @@ def main():
 
     # Show Test 3 result
     cv2.imshow("Test 3: Bank Interface Detection", test3_img)
-    cv2.waitKey(1)  # Allow window to render on Windows
+    cv2.waitKey(100)  # Allow window to render on Windows (100ms)
     print("\nShowing bank interface detection...")
     print("Press ENTER in this terminal to continue...")
     input()
@@ -457,7 +474,7 @@ def main():
 
     # Show Test 4 result
     cv2.imshow("Test 4: Grimy Herb Click Targets", test4_img)
-    cv2.waitKey(1)  # Allow window to render on Windows
+    cv2.waitKey(100)  # Allow window to render on Windows (100ms)
     print("\nShowing grimy herb click targets...")
     print("Press ENTER in this terminal to continue...")
     input()
@@ -556,7 +573,7 @@ def main():
     # Show final composite
     print("\n" + "=" * 70)
     cv2.imshow("Test 5: Final Composite - All Detections", final_img)
-    cv2.waitKey(1)  # Allow window to render on Windows
+    cv2.waitKey(100)  # Allow window to render on Windows (100ms)
     print("Showing final composite with ALL detections...")
     print("Press ENTER in this terminal to exit...")
     input()

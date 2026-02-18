@@ -28,6 +28,13 @@ GRIMY_HERBS = {
     "grimy_cadantine.png": "Grimy cadantine",
 }
 
+# Bank interface elements (these vary by bank type - booth, chest, etc.)
+# Note: Bank booth/chest appearance varies, user may need to capture manually
+BANK_TEMPLATES = {
+    # Deposit button is universal across all banks
+    "deposit_all.png": "Bank deposit Inventory button",
+}
+
 # OSRS Wiki MediaWiki API
 WIKI_API_URL = "https://oldschool.runescape.wiki/api.php"
 
