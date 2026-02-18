@@ -187,19 +187,30 @@ class BankDetector:
         )
 
         # Method 1: Quad-anchor (most reliable)
-        # All 4 corners give us the exact bank panel bounds
+        # Calculate right-angle intersection points from button pairs
         if menu_match.found and close_match.found and insert_match.found and deposit_match.found:
-            # Top edge: just below menu/close buttons
-            top = max(menu_match.y + menu_match.height, close_match.y + close_match.height) + 5
+            # LEFT SIDE: Right-angle from menu (TL) to insert (BL)
+            # The corner point is at (insert.right, menu.bottom) - where vertical from insert
+            # meets horizontal from menu
+            left_corner_x = insert_match.x + insert_match.width
+            left_corner_y = menu_match.y + menu_match.height
 
-            # Bottom edge: just above insert/deposit buttons
-            bottom = min(insert_match.y, deposit_match.y) - 5
+            # RIGHT SIDE: Right-angle from close (TR) to deposit (BC)
+            # The corner point is at (close.left, close.bottom) - where vertical from close
+            # meets horizontal from close bottom
+            right_corner_x = close_match.x
+            right_corner_y = close_match.y + close_match.height
 
-            # Left edge: right of menu/insert buttons
-            left = max(menu_match.x + menu_match.width, insert_match.x + insert_match.width) + 5
+            # BOTTOM corners use the top of insert/deposit
+            bottom_left_y = insert_match.y
+            bottom_right_y = deposit_match.y
 
-            # Right edge: left of close button
-            right = close_match.x - 5
+            # Calculate final bounds with small margin
+            margin = 5
+            left = left_corner_x + margin
+            top = max(left_corner_y, right_corner_y) + margin
+            right = right_corner_x - margin
+            bottom = min(bottom_left_y, bottom_right_y) - margin
 
             return (
                 max(0, left),
@@ -210,10 +221,19 @@ class BankDetector:
 
         # Method 2: Triple-anchor with top-left, top-right, bottom-left
         if menu_match.found and close_match.found and insert_match.found:
-            top = max(menu_match.y + menu_match.height, close_match.y + close_match.height) + 5
-            bottom = insert_match.y - 5
-            left = max(menu_match.x + menu_match.width, insert_match.x + insert_match.width) + 5
-            right = close_match.x - 5
+            # LEFT SIDE: Right-angle from menu to insert
+            left_corner_x = insert_match.x + insert_match.width
+            left_corner_y = menu_match.y + menu_match.height
+
+            # RIGHT SIDE: Use close button position
+            right_corner_x = close_match.x
+            right_corner_y = close_match.y + close_match.height
+
+            margin = 5
+            left = left_corner_x + margin
+            top = max(left_corner_y, right_corner_y) + margin
+            right = right_corner_x - margin
+            bottom = insert_match.y - margin
 
             return (
                 max(0, left),

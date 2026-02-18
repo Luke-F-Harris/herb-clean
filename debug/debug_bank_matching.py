@@ -611,36 +611,79 @@ def main():
 
     # Draw geometry lines based on detection method
     if menu_match.found and close_match.found and insert_match.found and deposit_match.found:
-        # QUAD-ANCHOR: Draw the full bounding box formed by all 4 anchors
+        # QUAD-ANCHOR: Draw right-angle geometry from button pairs
         line_color = (255, 255, 255)
+        corner_color = (0, 255, 255)  # Cyan for corner points
 
-        # Top edge (menu to close)
+        # LEFT SIDE: Right-angle from menu (TL) to insert (BL)
+        # Corner point is at (insert.right, menu.bottom)
+        left_corner_x = insert_match.x + insert_match.width
+        left_corner_y = menu_match.y + menu_match.height
+
+        # Draw vertical line from menu down to corner
         cv2.line(vis_img,
-            (menu_match.center_x, menu_match.center_y),
-            (close_match.center_x, close_match.center_y),
+            (left_corner_x, menu_match.y + menu_match.height),
+            (left_corner_x, insert_match.y),
             line_color, 2)
 
-        # Right edge (close to deposit)
+        # Draw horizontal line from menu to corner
         cv2.line(vis_img,
-            (close_match.center_x, close_match.center_y),
-            (deposit_match.center_x, deposit_match.center_y),
+            (menu_match.x + menu_match.width, left_corner_y),
+            (left_corner_x, left_corner_y),
             line_color, 2)
 
-        # Bottom edge (deposit to insert)
+        # Draw corner point (left)
+        cv2.circle(vis_img, (left_corner_x, left_corner_y), 8, corner_color, -1)
+        cv2.putText(vis_img, "TL", (left_corner_x + 10, left_corner_y - 5),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, corner_color, 2)
+
+        # RIGHT SIDE: Right-angle from close (TR) to deposit (BC)
+        # Corner point is at (close.left, close.bottom)
+        right_corner_x = close_match.x
+        right_corner_y = close_match.y + close_match.height
+
+        # Draw vertical line from close down to deposit level
         cv2.line(vis_img,
-            (deposit_match.center_x, deposit_match.center_y),
-            (insert_match.center_x, insert_match.center_y),
+            (right_corner_x, close_match.y + close_match.height),
+            (right_corner_x, deposit_match.y),
             line_color, 2)
 
-        # Left edge (insert to menu)
+        # Draw horizontal line from close to corner
         cv2.line(vis_img,
-            (insert_match.center_x, insert_match.center_y),
-            (menu_match.center_x, menu_match.center_y),
+            (close_match.x, right_corner_y),
+            (right_corner_x + 20, right_corner_y),
             line_color, 2)
+
+        # Draw corner point (right)
+        cv2.circle(vis_img, (right_corner_x, right_corner_y), 8, corner_color, -1)
+        cv2.putText(vis_img, "TR", (right_corner_x - 30, right_corner_y - 5),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, corner_color, 2)
+
+        # BOTTOM corners
+        bottom_left_y = insert_match.y
+        bottom_right_y = deposit_match.y
+
+        # Draw bottom-left corner point
+        cv2.circle(vis_img, (left_corner_x, bottom_left_y), 8, corner_color, -1)
+        cv2.putText(vis_img, "BL", (left_corner_x + 10, bottom_left_y + 15),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, corner_color, 2)
+
+        # Draw bottom-right corner point
+        cv2.circle(vis_img, (right_corner_x, bottom_right_y), 8, corner_color, -1)
+        cv2.putText(vis_img, "BR", (right_corner_x - 30, bottom_right_y + 15),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, corner_color, 2)
+
+        # Draw connecting lines between corners (the actual bounds)
+        # Top edge
+        cv2.line(vis_img, (left_corner_x, left_corner_y), (right_corner_x, right_corner_y),
+            (0, 200, 0), 2)
+        # Bottom edge
+        cv2.line(vis_img, (left_corner_x, bottom_left_y), (right_corner_x, bottom_right_y),
+            (0, 200, 0), 2)
 
         # Add "QUAD-ANCHOR" label in center
-        center_x = (menu_match.center_x + close_match.center_x) // 2
-        center_y = (menu_match.center_y + insert_match.center_y) // 2
+        center_x = (left_corner_x + right_corner_x) // 2
+        center_y = (left_corner_y + bottom_left_y) // 2
         cv2.putText(
             vis_img,
             "QUAD-ANCHOR",
