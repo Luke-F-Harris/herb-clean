@@ -1,6 +1,6 @@
-"""Screen capture using mss with RuneLite window detection."""
+"""Screen capture using mss with RuneLite window detection (Windows-compatible)."""
 
-import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Optional
 
@@ -31,13 +31,89 @@ class ScreenCapture:
         self.window_title = window_title
         self._sct = mss.mss()
         self._window_bounds: Optional[WindowBounds] = None
+        self._hwnd: Optional[int] = None  # Windows window handle
 
     def find_window(self) -> Optional[WindowBounds]:
-        """Find RuneLite window bounds using xdotool.
+        """Find RuneLite window bounds.
+
+        Uses Windows API (win32gui) on Windows.
 
         Returns:
             WindowBounds or None if not found
         """
+        if sys.platform == "win32":
+            return self._find_window_windows()
+        else:
+            return self._find_window_linux()
+
+    def _find_window_windows(self) -> Optional[WindowBounds]:
+        """Find window using Windows API (win32gui).
+
+        Returns:
+            WindowBounds or None if not found
+        """
+        try:
+            import win32gui
+            import win32con
+        except ImportError:
+            raise RuntimeError(
+                "pywin32 is required for Windows. Install with: pip install pywin32"
+            )
+
+        # Find all windows with matching title
+        def callback(hwnd, windows):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                if self.window_title.lower() in title.lower():
+                    windows.append(hwnd)
+            return True
+
+        windows = []
+        win32gui.EnumWindows(callback, windows)
+
+        if not windows:
+            return None
+
+        # Use first matching window
+        self._hwnd = windows[0]
+
+        # Get window rect (includes borders/title bar)
+        rect = win32gui.GetWindowRect(self._hwnd)
+
+        # Get client rect (actual drawable area)
+        try:
+            client_rect = win32gui.GetClientRect(self._hwnd)
+            # Convert client coordinates to screen coordinates
+            client_top_left = win32gui.ClientToScreen(self._hwnd, (0, 0))
+
+            self._window_bounds = WindowBounds(
+                x=client_top_left[0],
+                y=client_top_left[1],
+                width=client_rect[2],
+                height=client_rect[3],
+            )
+        except Exception:
+            # Fallback to window rect
+            self._window_bounds = WindowBounds(
+                x=rect[0],
+                y=rect[1],
+                width=rect[2] - rect[0],
+                height=rect[3] - rect[1],
+            )
+
+        return self._window_bounds
+
+    def _find_window_linux(self) -> Optional[WindowBounds]:
+        """Find window using xdotool (Linux).
+
+        Returns:
+            WindowBounds or None if not found
+        """
+        try:
+            import subprocess
+        except ImportError:
+            return None
+
         try:
             # Find window ID by name
             result = subprocess.run(

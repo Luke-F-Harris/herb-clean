@@ -48,3 +48,7 @@ config/templates/*.jpg
 # OS
 .DS_Store
 Thumbs.db
+
+# Windows
+*.bat.bak
+desktop.ini

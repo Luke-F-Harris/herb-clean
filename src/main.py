@@ -95,14 +95,21 @@ def validate_environment() -> list[str]:
     """
     issues = []
 
-    # Check for xdotool (Linux window detection)
-    try:
-        import subprocess
-        result = subprocess.run(["which", "xdotool"], capture_output=True)
-        if result.returncode != 0:
-            issues.append("xdotool not found - required for window detection")
-    except Exception:
-        issues.append("Could not check for xdotool")
+    # Check platform-specific dependencies
+    if sys.platform == "win32":
+        try:
+            import win32gui
+        except ImportError:
+            issues.append("pywin32 not found - required for Windows. Run: pip install pywin32")
+    else:
+        # Check for xdotool (Linux window detection)
+        try:
+            import subprocess
+            result = subprocess.run(["which", "xdotool"], capture_output=True)
+            if result.returncode != 0:
+                issues.append("xdotool not found - required for Linux. Run: sudo apt install xdotool")
+        except Exception:
+            issues.append("Could not check for xdotool")
 
     # Check required Python packages
     required_packages = [

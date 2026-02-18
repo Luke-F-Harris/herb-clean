@@ -2,6 +2,8 @@
 
 An automated herb cleaning bot for Old School RuneScape with extensive anti-detection measures.
 
+**🪟 Windows-native support** with automatic setup and inventory detection!
+
 ## Disclaimer
 
 **Botting violates OSRS Terms of Service and can result in permanent account bans.** Jagex employs sophisticated behavioral analysis. No bot is truly undetectable with sufficient usage data. This implementation is for **educational purposes only**.
@@ -22,12 +24,21 @@ An automated herb cleaning bot for Old School RuneScape with extensive anti-dete
 
 - Python 3.10+
 - RuneLite client with GPU plugin
-- Linux (uses xdotool for window detection)
+- **Windows 10/11** (primary support) or Linux
 
 ### Dependencies
 
+**Windows:**
+```powershell
+pip install -r requirements.txt
+```
+
+**Linux:**
 ```bash
 pip install -r requirements.txt
+sudo apt install xdotool  # Ubuntu/Debian
+# OR
+sudo pacman -S xdotool    # Arch
 ```
 
 Required packages:
@@ -38,16 +49,28 @@ Required packages:
 - pynput >= 1.7.6
 - python-statemachine >= 2.1.0
 - Pillow >= 10.0.0
+- pywin32 >= 306 (Windows only)
 
-### System Dependencies
+## Quick Start (Windows)
 
-```bash
-# Ubuntu/Debian
-sudo apt install xdotool
+```powershell
+# 1. Clone repository
+git clone https://github.com/Luke-F-Harris/osrs-herb-clean.git
+cd osrs-herb-clean
 
-# Arch
-sudo pacman -S xdotool
+# 2. Run setup script
+setup_windows.bat
+
+# 3. Capture template images (see WINDOWS_SETUP.md)
+
+# 4. Test inventory detection (with RuneLite running)
+test_detection.bat
+
+# 5. Run bot
+run_bot.bat
 ```
+
+📖 **See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for detailed Windows setup guide**
 
 ## Setup
 
@@ -104,27 +127,39 @@ breaks:
 
 ## Usage
 
-### Basic Run
+### Windows
 
-```bash
-cd osrs_herblore/src
-python main.py
-```
+```powershell
+# Activate virtual environment (if not already active)
+.\venv\Scripts\activate
 
-### Options
+# Basic run
+python .\src\main.py
 
-```bash
 # Verbose logging
-python main.py -v
+python .\src\main.py -v
 
 # Custom config file
-python main.py -c /path/to/config.yaml
+python .\src\main.py -c C:\path\to\config.yaml
 
 # Log to file
-python main.py -l session.log
+python .\src\main.py -l session.log
 
 # Dry run (validate config without running)
-python main.py --dry-run
+python .\src\main.py --dry-run
+```
+
+### Linux
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Basic run
+python src/main.py
+
+# Options same as Windows (use forward slashes for paths)
+python src/main.py -v -l session.log
 ```
 
 ### Controls
@@ -206,9 +241,18 @@ attention:
 ## Troubleshooting
 
 ### "Could not find RuneLite window"
-- Ensure RuneLite is running
+- Ensure RuneLite is running and visible
 - Check window title matches config (default: "RuneLite")
-- Install xdotool: `sudo apt install xdotool`
+- **Windows**: Make sure pywin32 is installed: `pip install pywin32`
+- **Linux**: Install xdotool: `sudo apt install xdotool`
+
+### "pywin32 is required for Windows"
+```powershell
+pip install pywin32
+# If that fails, try:
+pip install --upgrade pywin32
+python .\venv\Scripts\pywin32_postinstall.py -install
+```
 
 ### Template matching fails
 - Recapture templates at current resolution
