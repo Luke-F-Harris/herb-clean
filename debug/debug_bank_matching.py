@@ -438,18 +438,6 @@ def main():
             2
         )
 
-        # Draw arrow from close button to bank region to show offset
-        if bank_region:
-            bank_x, bank_y, _, _ = bank_region
-            cv2.arrowedLine(
-                vis_img,
-                (close_match.center_x, close_match.center_y),
-                (bank_x + 20, bank_y + 20),
-                (255, 128, 0),  # Orange arrow
-                3,
-                tipLength=0.3
-            )
-
     # Draw HYBRID detection result if we have any match (even if failed threshold)
     if best_hybrid_match:
         match_x = best_hybrid_match.center_x
@@ -480,39 +468,6 @@ def main():
             color,
             2
         )
-
-    # Add coordinate debug info overlay
-    if bank_region and close_match.found:
-        x, y, width, height = bank_region
-        offset_x_actual = close_match.x - x
-        offset_y_actual = close_match.y - y
-
-        debug_text = [
-            f"Screen: {vis_img.shape[1]}x{vis_img.shape[0]}",
-            f"Close: ({close_match.x}, {close_match.y})",
-            f"Bank: ({x}, {y}) {width}x{height}",
-            f"Offset: ({offset_x_actual}, {offset_y_actual})",
-            f"Scale: {close_match.scale:.2f}x",
-        ]
-
-        # Draw semi-transparent background for text
-        overlay = vis_img.copy()
-        cv2.rectangle(overlay, (5, 70), (400, 220), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.6, vis_img, 0.4, 0, vis_img)
-
-        # Draw text
-        text_y = 95
-        for line in debug_text:
-            cv2.putText(
-                vis_img,
-                line,
-                (15, text_y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (255, 255, 255),
-                1
-            )
-            text_y += 25
 
     # Draw bottom-left info box with detection summary
     img_h, img_w = vis_img.shape[:2]
@@ -603,7 +558,6 @@ def main():
     print()
     print("LEGEND:")
     print("  - BLUE box/circle = Close button position")
-    print("  - ORANGE arrow = Offset from close button to bank region")
     print("  - YELLOW box = Bank search area (scale-aware!)")
     if best_hybrid_match:
         if best_hybrid_match.found:
