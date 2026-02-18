@@ -44,9 +44,20 @@ def main():
 
     print(f"✓ Captured {window_img.shape[1]}x{window_img.shape[0]} image")
 
+    # Check for template
+    print("\n3. Checking for inventory template...")
+    template_path = Path(__file__).parent / "config" / "templates" / "inventory_template.png"
+
+    if template_path.exists():
+        print(f"✓ Found template: {template_path}")
+        detector = InventoryAutoDetector(template_path)
+    else:
+        print(f"⚠ No template found at: {template_path}")
+        print("  Run setup_inventory.bat to capture one!")
+        detector = InventoryAutoDetector()
+
     # Auto-detect inventory
-    print("\n3. Auto-detecting inventory...")
-    detector = InventoryAutoDetector()
+    print("\n4. Auto-detecting inventory...")
     region = detector.detect_with_fallback(window_img, None)
 
     if region.confidence > 0:
@@ -61,7 +72,7 @@ def main():
         print(f"  Slot size: {region.slot_width}x{region.slot_height}")
 
     # Draw detection result
-    print("\n4. Creating visualization...")
+    print("\n5. Creating visualization...")
     result_img = window_img.copy()
 
     # Draw inventory border
@@ -92,7 +103,7 @@ def main():
     print(f"✓ Saved visualization to: {output_path}")
 
     # Show result
-    print("\n5. Displaying result...")
+    print("\n6. Displaying result...")
     print("   Close the window to exit.")
 
     cv2.imshow("Inventory Detection", result_img)

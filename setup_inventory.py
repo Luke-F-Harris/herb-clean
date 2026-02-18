@@ -12,6 +12,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import yaml
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -180,16 +181,67 @@ def capture_inventory_template():
     print(f"  Position: ({x1}, {y1})")
     print(f"  Slot size: {slot_width}x{slot_height}")
 
-    # Update config suggestion
-    print("\n" + "=" * 60)
-    print("SUCCESS! Template saved.")
-    print("=" * 60)
-    print("\nMake sure your config/default_config.yaml has:")
-    print("""
+    # Automatically update config file
+    print("\n4. Updating config file...")
+    config_path = Path(__file__).parent / "config" / "default_config.yaml"
+
+    try:
+        # Read current config
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+        # Update inventory template setting
+        if 'window' not in config:
+            config['window'] = {}
+
+        config['window']['inventory_template'] = "inventory_template.png"
+        config['window']['auto_detect_inventory'] = True
+
+        # Also save the position as fallback
+        if 'inventory' not in config['window']:
+            config['window']['inventory'] = {}
+
+        config['window']['inventory']['x'] = x1
+        config['window']['inventory']['y'] = y1
+        config['window']['inventory']['slot_width'] = slot_width
+        config['window']['inventory']['slot_height'] = slot_height
+
+        # Write back
+        with open(config_path, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+        print(f"✓ Updated {config_path}")
+
+    except Exception as e:
+        print(f"⚠ Could not auto-update config: {e}")
+        print("\nPlease manually update your config/default_config.yaml:")
+        print("""
 window:
   auto_detect_inventory: true
   inventory_template: "inventory_template.png"
 """)
+
+    # Update config suggestion
+    print("\n" + "=" * 60)
+    print("SUCCESS! Template saved and config updated.")
+    print("=" * 60)
+
+    # Verify template works
+    print("\n5. Verifying template...")
+    from vision.inventory_auto_detect import InventoryAutoDetector
+
+    test_detector = InventoryAutoDetector(template_path)
+    test_region = test_detector.detect_inventory_region(current_image)
+
+    if test_region and test_region.confidence > 0.70:
+        print(f"✓ Template detection works! Confidence: {test_region.confidence:.2%}")
+        print(f"  Detected at: ({test_region.x}, {test_region.y})")
+    else:
+        conf = test_region.confidence if test_region else 0.0
+        print(f"⚠ Template detection weak. Confidence: {conf:.2%}")
+        print("  This might still work, but try recapturing if issues occur.")
+
+    print("\nRun 'test_detection.bat' to see full visual verification!")
 
     return True
 
@@ -276,11 +328,42 @@ def manual_position_setup():
     slot_width = width // 4
     slot_height = height // 7
 
-    print("\n" + "=" * 60)
-    print("Manual Configuration")
-    print("=" * 60)
-    print(f"\nAdd this to your config/default_config.yaml:")
-    print(f"""
+    # Automatically update config file
+    print("\n4. Updating config file...")
+    config_path = Path(__file__).parent / "config" / "default_config.yaml"
+
+    try:
+        # Read current config
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+        # Disable auto-detect, set manual position
+        if 'window' not in config:
+            config['window'] = {}
+
+        config['window']['auto_detect_inventory'] = False
+        config['window']['inventory_template'] = None
+
+        if 'inventory' not in config['window']:
+            config['window']['inventory'] = {}
+
+        config['window']['inventory']['x'] = x1
+        config['window']['inventory']['y'] = y1
+        config['window']['inventory']['slot_width'] = slot_width
+        config['window']['inventory']['slot_height'] = slot_height
+        config['window']['inventory']['cols'] = 4
+        config['window']['inventory']['rows'] = 7
+
+        # Write back
+        with open(config_path, 'w') as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+        print(f"✓ Updated {config_path}")
+
+    except Exception as e:
+        print(f"⚠ Could not auto-update config: {e}")
+        print("\nPlease manually add this to your config/default_config.yaml:")
+        print(f"""
 window:
   auto_detect_inventory: false
   inventory_template: null
@@ -292,6 +375,11 @@ window:
     cols: 4
     rows: 7
 """)
+
+    print("\n" + "=" * 60)
+    print("SUCCESS! Manual configuration saved.")
+    print("=" * 60)
+    print("\nRun 'test_detection.bat' to verify it works!")
 
     return True
 
