@@ -206,6 +206,203 @@ class TemplateMatcher:
 
         return best_result
 
+    def _crop_to_bottom_region(
+        self, image: np.ndarray, percentage: float = 0.65
+    ) -> tuple[np.ndarray, int]:
+        """Crop image to bottom N% of height.
+
+        Args:
+            image: Input image to crop
+            percentage: Percentage of height to keep (0.0-1.0)
+
+        Returns:
+            Tuple of (cropped_image, crop_offset_y)
+        """
+        h = image.shape[0]
+        crop_y = int(h * (1.0 - percentage))
+        cropped = image[crop_y:, :]
+        return cropped, crop_y
+
+    def match_bottom_region(
+        self,
+        image: np.ndarray,
+        template_name: str,
+        region_percentage: float = 0.65,
+        method: int = cv2.TM_CCOEFF_NORMED,
+    ) -> MatchResult:
+        """Match template using only bottom portion of image/template.
+
+        This is useful for bank items where stack numbers overlay
+        the top portion of the item icon.
+
+        Args:
+            image: BGR image to search in
+            template_name: Template filename to search for
+            region_percentage: Percentage of height to use (0.0-1.0)
+            method: OpenCV template matching method
+
+        Returns:
+            MatchResult with adjusted coordinates
+        """
+        template = self.load_template(template_name)
+        if template is None:
+            return MatchResult(
+                found=False,
+                confidence=0.0,
+                x=0,
+                y=0,
+                width=0,
+                height=0,
+                center_x=0,
+                center_y=0,
+            )
+
+        # Get original dimensions before cropping
+        orig_template_h, orig_template_w = template.shape[:2]
+
+        # Crop template to bottom region
+        cropped_template, template_offset_y = self._crop_to_bottom_region(
+            template, region_percentage
+        )
+
+        # Perform matching based on mode
+        if self.multi_scale:
+            result = self._match_multi_scale_cropped(
+                image, cropped_template, template_offset_y,
+                orig_template_w, orig_template_h, method
+            )
+        else:
+            result = self._match_single_scale_cropped(
+                image, cropped_template, template_offset_y,
+                orig_template_w, orig_template_h, method
+            )
+
+        return result
+
+    def _match_single_scale_cropped(
+        self,
+        image: np.ndarray,
+        cropped_template: np.ndarray,
+        template_offset_y: int,
+        orig_width: int,
+        orig_height: int,
+        method: int,
+    ) -> MatchResult:
+        """Single-scale matching with cropped template."""
+        h, w = cropped_template.shape[:2]
+
+        # Skip if template larger than image
+        if h > image.shape[0] or w > image.shape[1]:
+            return MatchResult(
+                found=False,
+                confidence=0.0,
+                x=0,
+                y=0,
+                width=0,
+                height=0,
+                center_x=0,
+                center_y=0,
+            )
+
+        result = cv2.matchTemplate(image, cropped_template, method)
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+        # For TM_SQDIFF methods, minimum is best match
+        if method in [cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED]:
+            confidence = 1.0 - min_val
+            loc = min_loc
+        else:
+            confidence = max_val
+            loc = max_loc
+
+        found = confidence >= self.confidence_threshold
+
+        # Adjust y-coordinate to account for crop offset
+        # Use original template dimensions for width/height
+        adjusted_y = loc[1] - template_offset_y
+
+        return MatchResult(
+            found=found,
+            confidence=confidence,
+            x=loc[0],
+            y=adjusted_y,
+            width=orig_width,
+            height=orig_height,
+            center_x=loc[0] + orig_width // 2,
+            center_y=adjusted_y + orig_height // 2,
+        )
+
+    def _match_multi_scale_cropped(
+        self,
+        image: np.ndarray,
+        cropped_template: np.ndarray,
+        template_offset_y: int,
+        orig_width: int,
+        orig_height: int,
+        method: int,
+    ) -> MatchResult:
+        """Multi-scale matching with cropped template."""
+        best_result = MatchResult(
+            found=False,
+            confidence=0.0,
+            x=0,
+            y=0,
+            width=0,
+            height=0,
+            center_x=0,
+            center_y=0,
+        )
+
+        scales = np.linspace(
+            self.scale_range[0], self.scale_range[1], self.scale_steps
+        )
+
+        for scale in scales:
+            # Resize cropped template
+            h, w = cropped_template.shape[:2]
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+
+            if new_w <= 0 or new_h <= 0:
+                continue
+            if new_h > image.shape[0] or new_w > image.shape[1]:
+                continue
+
+            scaled_template = cv2.resize(cropped_template, (new_w, new_h))
+
+            result = cv2.matchTemplate(image, scaled_template, method)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+            if method in [cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED]:
+                confidence = 1.0 - min_val
+                loc = min_loc
+            else:
+                confidence = max_val
+                loc = max_loc
+
+            if confidence > best_result.confidence:
+                # Scale original dimensions
+                scaled_orig_w = int(orig_width * scale)
+                scaled_orig_h = int(orig_height * scale)
+
+                # Adjust y-coordinate for crop offset (also scaled)
+                scaled_offset_y = int(template_offset_y * scale)
+                adjusted_y = loc[1] - scaled_offset_y
+
+                best_result = MatchResult(
+                    found=confidence >= self.confidence_threshold,
+                    confidence=confidence,
+                    x=loc[0],
+                    y=adjusted_y,
+                    width=scaled_orig_w,
+                    height=scaled_orig_h,
+                    center_x=loc[0] + scaled_orig_w // 2,
+                    center_y=adjusted_y + scaled_orig_h // 2,
+                    scale=scale,
+                )
+
+        return best_result
+
     def match_all(
         self,
         image: np.ndarray,

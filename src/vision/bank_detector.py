@@ -163,6 +163,8 @@ class BankDetector:
     def find_grimy_herb_in_bank(self) -> Optional[MatchResult]:
         """Find grimy herb in bank interface.
 
+        Uses bottom-region matching to avoid stack number interference.
+
         Returns:
             MatchResult with position and dimensions, or None
         """
@@ -171,7 +173,13 @@ class BankDetector:
             return self._cached_state.grimy_herb_location
 
         for herb_config in self.grimy_templates:
-            match = self.matcher.match(screen_image, herb_config["template"])
+            # Use bottom-region matching for bank items (avoids stack numbers)
+            match = self.matcher.match_bottom_region(
+                screen_image,
+                herb_config["template"],
+                region_percentage=0.65  # Use bottom 65% of item
+            )
+
             if match.found:
                 match_result = self._to_screen_coords(match)
                 self._cached_state.grimy_herb_location = match_result
