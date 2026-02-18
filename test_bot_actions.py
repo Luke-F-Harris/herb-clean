@@ -300,65 +300,86 @@ def main():
     has_booth_template = booth_template_path.exists()
     has_chest_template = chest_template_path.exists()
 
-    # Capture fresh screenshot
-    window_img = screen.capture_window()
-
     booth_match = None
+    test2_img = None
 
     if has_booth_template or has_chest_template:
-        print("Searching for bank booth/chest (this may take a moment on large screens)...")
+        # Retry loop for bank booth detection
+        while True:
+            # Capture fresh screenshot
+            window_img = screen.capture_window()
 
-        # Get full match result (not just position)
-        if has_booth_template:
-            booth_match = matcher.match(
-                window_img,
-                config.get('bank', {}).get('booth_template', 'bank_booth.png')
-            )
+            print("Searching for bank booth/chest (this may take a moment on large screens)...")
 
-        if has_chest_template and (booth_match is None or not booth_match.found):
-            # Try chest as fallback
-            booth_match = matcher.match(
-                window_img,
-                config.get('bank', {}).get('chest_template', 'bank_chest.png')
-            )
+            # Get full match result (not just position)
+            if has_booth_template:
+                booth_match = matcher.match(
+                    window_img,
+                    config.get('bank', {}).get('booth_template', 'bank_booth.png')
+                )
+
+            if has_chest_template and (booth_match is None or not booth_match.found):
+                # Try chest as fallback
+                booth_match = matcher.match(
+                    window_img,
+                    config.get('bank', {}).get('chest_template', 'bank_chest.png')
+                )
+
+            if booth_match and booth_match.found:
+                # Success! Convert to screen coordinates
+                bounds = screen.window_bounds
+                if bounds:
+                    booth_match.x += bounds.x
+                    booth_match.y += bounds.y
+                    booth_match.center_x += bounds.x
+                    booth_match.center_y += bounds.y
+
+                print(f"✓ Bank booth detected at ({booth_match.center_x}, {booth_match.center_y})")
+                print(f"  Clickable area: {booth_match.width}x{booth_match.height} pixels")
+                test_results["Bank Booth"] = "✓ PASS"
+
+                # Draw visualization
+                test2_img = window_img.copy()
+                draw_inventory_grid(test2_img, inventory, (0, 255, 0))
+                draw_inventory_border(test2_img, inventory, (0, 255, 0))
+                draw_clickable_box(test2_img, booth_match, "BANK", (255, 255, 0))
+                break
+            else:
+                # Detection failed - ask to retry
+                print()
+                print("❌ Could not find bank booth/chest")
+                print("  Options:")
+                print("  1. Move closer to a bank booth/chest")
+                print("  2. Try a different bank location")
+                print("  3. Ensure the bank is clearly visible on screen")
+                print()
+                retry = input("Retry detection? (y/n): ")
+                if retry.lower() != 'y':
+                    print("Skipping bank booth detection...")
+                    test_results["Bank Booth"] = "⚠ SKIP"
+                    # Create a simple screenshot without booth marker
+                    test2_img = window_img.copy()
+                    draw_inventory_grid(test2_img, inventory, (0, 255, 0))
+                    draw_inventory_border(test2_img, inventory, (0, 255, 0))
+                    break
     else:
         print("⚠ Skipping: No bank booth/chest templates found")
         print("  Bank booth templates must be captured manually (they vary by location)")
-        booth_match = MatchResult(found=False, confidence=0.0, x=0, y=0, width=0, height=0, center_x=0, center_y=0)
+        test_results["Bank Booth"] = "⚠ SKIP"
+        # Capture screenshot for inventory only
+        window_img = screen.capture_window()
+        test2_img = window_img.copy()
+        draw_inventory_grid(test2_img, inventory, (0, 255, 0))
+        draw_inventory_border(test2_img, inventory, (0, 255, 0))
 
-    if booth_match and booth_match.found:
-        # Convert to screen coordinates
-        bounds = screen.window_bounds
-        if bounds:
-            booth_match.x += bounds.x
-            booth_match.y += bounds.y
-            booth_match.center_x += bounds.x
-            booth_match.center_y += bounds.y
-
-        print(f"✓ Bank booth detected at ({booth_match.center_x}, {booth_match.center_y})")
-        print(f"  Clickable area: {booth_match.width}x{booth_match.height} pixels")
-        test_results["Bank Booth"] = "✓ PASS"
-    else:
-        print("❌ Could not find bank booth/chest")
-        print("  Options:")
-        print("  1. Stand closer to a bank")
-        print("  2. Capture bank_booth.png template (see template setup)")
-        print("  3. Try with bank_chest.png if using a chest")
-        test_results["Bank Booth"] = "❌ FAIL"
-
-    # Draw visualization
-    test2_img = window_img.copy()
-    draw_inventory_grid(test2_img, inventory, (0, 255, 0))
-    draw_inventory_border(test2_img, inventory, (0, 255, 0))
-    draw_clickable_box(test2_img, booth_match, "BANK", (255, 255, 0))
-
-    # Show Test 2 result
-    cv2.imshow("Test 2: Bank Booth Detection", test2_img)
-    cv2.waitKey(100)  # Allow window to render on Windows (100ms)
-    print("\nShowing bank booth detection...")
-    print("Press ENTER in this terminal to continue...")
-    input()
-    cv2.destroyAllWindows()
+    # Show Test 2 result (only if we have an image to show)
+    if test2_img is not None:
+        cv2.imshow("Test 2: Bank Booth Detection", test2_img)
+        cv2.waitKey(100)  # Allow window to render on Windows (100ms)
+        print("\nShowing bank booth detection...")
+        print("Press ENTER in this terminal to continue...")
+        input()
+        cv2.destroyAllWindows()
 
     # ========================================================================
     # TEST 3: Bank Interface Detection
