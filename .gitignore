@@ -52,3 +52,10 @@ Thumbs.db
 # Windows
 *.bat.bak
 desktop.ini
+
+# Debug/test output images
+*_result.png
+*_debug.png
+debug_*.png
+test_*.png
+!config/templates/*.png
