@@ -163,6 +163,9 @@ class BankDetector:
     def _get_bank_item_region(self, screen_image: np.ndarray) -> Optional[tuple[int, int, int, int]]:
         """Detect the bank item grid region to restrict search area.
 
+        Uses scale-aware offsets to work correctly across different resolutions
+        and zoom levels (4K, 1080p, RuneLite zoom settings).
+
         Returns:
             Tuple of (x, y, width, height) for bank item region, or None
         """
@@ -179,33 +182,41 @@ class BankDetector:
 
         # Use close button as primary anchor (top-right of bank)
         if close_match.found:
-            # Bank close button is at top-right of bank interface
-            # Item grid is below and to the left
-            # Typical OSRS bank: ~900px wide, ~550px tall for item area
-            close_x = close_match.x
-            close_y = close_match.y
+            # Get scale factor from template matching
+            # This adapts to different resolutions/zoom levels
+            scale = close_match.scale
+
+            # Scale the offsets proportionally
+            # Base measurements from 1920x1080 reference
+            offset_x = int(900 * scale)
+            offset_y = int(20 * scale)
+            bank_width = int(950 * scale)
+            bank_height = int(600 * scale)
 
             # Calculate bank item region
-            # Grid starts about 50px below title bar, extends left about 850px
-            x = max(0, close_x - 900)
-            y = max(0, close_y - 20)
-            width = min(950, screen_image.shape[1] - x)
-            height = min(600, screen_image.shape[0] - y)
+            x = max(0, close_match.x - offset_x)
+            y = max(0, close_match.y - offset_y)
+            width = min(bank_width, screen_image.shape[1] - x)
+            height = min(bank_height, screen_image.shape[0] - y)
 
             return (x, y, width, height)
 
         # Fallback: use deposit button as anchor (bottom of bank)
         elif deposit_match.found:
-            # Deposit button is at bottom of bank interface
-            # Item grid is above
-            deposit_x = deposit_match.x
-            deposit_y = deposit_match.y
+            # Get scale factor for deposit button
+            scale = deposit_match.scale
+
+            # Scale the offsets proportionally
+            offset_x = int(400 * scale)
+            offset_y = int(600 * scale)
+            bank_width = int(900 * scale)
+            bank_height = int(550 * scale)
 
             # Grid is centered above deposit button
-            x = max(0, deposit_x - 400)
-            y = max(0, deposit_y - 600)
-            width = min(900, screen_image.shape[1] - x)
-            height = min(550, deposit_y - y)
+            x = max(0, deposit_match.x - offset_x)
+            y = max(0, deposit_match.y - offset_y)
+            width = min(bank_width, screen_image.shape[1] - x)
+            height = min(bank_height, deposit_match.y - y)
 
             return (x, y, width, height)
 
@@ -214,8 +225,12 @@ class BankDetector:
     def find_grimy_herb_in_bank(self) -> Optional[MatchResult]:
         """Find grimy herb in bank interface.
 
-        Uses bottom-region matching to avoid stack number interference.
-        Only searches within the bank item grid to prevent false positives.
+        Uses hybrid color + template matching approach:
+        1. Pre-filter candidates using color histogram similarity
+        2. Run template matching only on top candidates
+        3. Use bottom-region matching to avoid stack number interference
+
+        This significantly improves accuracy for visually similar herbs.
 
         Returns:
             MatchResult with position and dimensions, or None
@@ -240,24 +255,42 @@ class BankDetector:
             offset_x = 0
             offset_y = 0
 
-        for herb_config in self.grimy_templates:
+        # Extract all template names for color pre-filtering
+        template_names = [herb_config["template"] for herb_config in self.grimy_templates]
+
+        # Pre-filter using color histogram (get top 3 candidates)
+        color_candidates = self.matcher.filter_templates_by_color(
+            search_image,
+            template_names,
+            top_k=3
+        )
+
+        # Try template matching on color-filtered candidates only
+        best_match = None
+        best_confidence = 0.0
+
+        for template_name, color_similarity in color_candidates:
             # Use bottom-region matching for bank items (avoids stack numbers)
             match = self.matcher.match_bottom_region(
                 search_image,
-                herb_config["template"],
+                template_name,
                 region_percentage=0.65  # Use bottom 65% of item
             )
 
-            if match.found:
-                # Adjust coordinates to account for cropped region
-                match.x += offset_x
-                match.y += offset_y
-                match.center_x += offset_x
-                match.center_y += offset_y
+            if match.found and match.confidence > best_confidence:
+                best_match = match
+                best_confidence = match.confidence
 
-                match_result = self._to_screen_coords(match)
-                self._cached_state.grimy_herb_location = match_result
-                return match_result
+        if best_match:
+            # Adjust coordinates to account for cropped region
+            best_match.x += offset_x
+            best_match.y += offset_y
+            best_match.center_x += offset_x
+            best_match.center_y += offset_y
+
+            match_result = self._to_screen_coords(best_match)
+            self._cached_state.grimy_herb_location = match_result
+            return match_result
 
         return None
 

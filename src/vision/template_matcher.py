@@ -49,6 +49,7 @@ class TemplateMatcher:
         self.scale_range = scale_range
         self.scale_steps = scale_steps
         self._template_cache: dict[str, np.ndarray] = {}
+        self._histogram_cache: dict[str, np.ndarray] = {}
 
     def load_template(self, template_name: str) -> Optional[np.ndarray]:
         """Load a template image.
@@ -459,6 +460,103 @@ class TemplateMatcher:
 
         return matches
 
+    def _compute_color_histogram(self, image: np.ndarray) -> np.ndarray:
+        """Compute color histogram for an image.
+
+        Uses HSV color space to capture color characteristics independent
+        of brightness. Focuses on Hue and Saturation channels.
+
+        Args:
+            image: BGR image
+
+        Returns:
+            Normalized 2D histogram (Hue x Saturation)
+        """
+        # Convert to HSV color space
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+        # Compute 2D histogram for Hue and Saturation
+        # Hue: 0-180 (OpenCV), Saturation: 0-255
+        # Using 32 bins for each dimension provides good discrimination
+        hist = cv2.calcHist(
+            [hsv],
+            [0, 1],  # Hue and Saturation channels
+            None,
+            [32, 32],  # Histogram dimensions
+            [0, 180, 0, 256]  # Value ranges
+        )
+
+        # Normalize histogram
+        cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
+        return hist
+
+    def _get_template_histogram(self, template_name: str) -> Optional[np.ndarray]:
+        """Get cached color histogram for a template.
+
+        Args:
+            template_name: Template filename
+
+        Returns:
+            Normalized histogram or None if template not found
+        """
+        if template_name in self._histogram_cache:
+            return self._histogram_cache[template_name]
+
+        template = self.load_template(template_name)
+        if template is None:
+            return None
+
+        histogram = self._compute_color_histogram(template)
+        self._histogram_cache[template_name] = histogram
+        return histogram
+
+    def _compare_histograms(self, hist1: np.ndarray, hist2: np.ndarray) -> float:
+        """Compare two histograms using correlation method.
+
+        Args:
+            hist1: First histogram
+            hist2: Second histogram
+
+        Returns:
+            Similarity score (higher is more similar, range -1 to 1)
+        """
+        return cv2.compareHist(hist1, hist2, cv2.HISTCMP_CORREL)
+
+    def filter_templates_by_color(
+        self,
+        image: np.ndarray,
+        template_names: list[str],
+        top_k: int = 3,
+    ) -> list[tuple[str, float]]:
+        """Filter template candidates by color similarity.
+
+        Pre-filters templates before expensive spatial matching by comparing
+        color histograms. Returns the top-k most similar templates.
+
+        Args:
+            image: BGR image region to match against
+            template_names: List of template filenames to filter
+            top_k: Number of top candidates to return
+
+        Returns:
+            List of (template_name, color_similarity) tuples, sorted by similarity
+        """
+        # Compute histogram for search image
+        image_hist = self._compute_color_histogram(image)
+
+        # Compare with each template's histogram
+        similarities = []
+        for template_name in template_names:
+            template_hist = self._get_template_histogram(template_name)
+            if template_hist is not None:
+                similarity = self._compare_histograms(image_hist, template_hist)
+                similarities.append((template_name, similarity))
+
+        # Sort by similarity (descending) and return top-k
+        similarities.sort(key=lambda x: x[1], reverse=True)
+        return similarities[:top_k]
+
     def clear_cache(self) -> None:
-        """Clear the template cache."""
+        """Clear the template and histogram caches."""
         self._template_cache.clear()
+        self._histogram_cache.clear()

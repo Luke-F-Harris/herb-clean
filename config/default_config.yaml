@@ -90,8 +90,8 @@ attention:
 vision:
   confidence_threshold: 0.75  # Lowered for better matching across zoom levels
   multi_scale: true
-  scale_range: [0.7, 1.3]  # Wider range for better zoom tolerance
-  scale_steps: 7  # More steps for finer scale detection
+  scale_range: [0.9, 1.1]  # Narrowed range to reduce false positives
+  scale_steps: 3  # Fewer steps to reduce noise from wrong scales
 
 # Safety settings
 safety:
