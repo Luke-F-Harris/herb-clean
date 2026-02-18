@@ -8,6 +8,7 @@ An automated herb cleaning bot for Old School RuneScape with extensive anti-dete
 
 ## Features
 
+- **Auto-Detection**: Automatically finds inventory position (no manual calibration needed!)
 - **State Machine Architecture**: Clean FSM-based flow control
 - **Human-like Mouse Movement**: Bezier curves with overshoot simulation
 - **Click Randomization**: Gaussian position distribution, Gamma timing distribution
@@ -77,13 +78,9 @@ You need to capture template images from your RuneLite client:
 Edit `config/default_config.yaml`:
 
 ```yaml
-# Adjust inventory position for your setup
+# Auto-detection is enabled by default - no need to adjust inventory position!
 window:
-  inventory:
-    x: 563      # X offset from window left
-    y: 208      # Y offset from window top
-    slot_width: 42
-    slot_height: 36
+  auto_detect_inventory: true  # Automatically finds inventory
 
 # Adjust timing for speed vs. safety
 timing:
@@ -95,6 +92,8 @@ breaks:
   micro:
     interval: [480, 900]  # 8-15 minutes between micro-breaks
 ```
+
+**Note:** The bot now auto-detects inventory position by looking for the brown/tan OSRS inventory background. Manual configuration is only used as a fallback if auto-detection fails.
 
 ### 3. In-Game Setup
 
@@ -217,8 +216,10 @@ attention:
 - Try lowering `vision.confidence_threshold` (default: 0.80)
 
 ### Bot clicks wrong locations
-- Adjust `window.inventory` coordinates
-- Recalibrate for your screen resolution/scaling
+- Auto-detection should handle this automatically
+- Check logs for "Successfully auto-detected inventory" message
+- If auto-detection fails, manually set `window.auto_detect_inventory: false` and configure coordinates
+- Adjust `window.inventory` coordinates for your screen resolution/scaling
 
 ## License
 

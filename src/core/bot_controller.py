@@ -55,6 +55,7 @@ class BotController:
             template_matcher=self.template_matcher,
             inventory_config=self.config.window.get("inventory", {}),
             grimy_templates=self.config.get("herbs.grimy", []),
+            auto_detect=self.config.window.get("auto_detect_inventory", True),
         )
         self.bank = BankDetector(
             screen_capture=self.screen,

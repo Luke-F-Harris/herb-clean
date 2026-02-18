@@ -8,6 +8,7 @@ import numpy as np
 
 from .screen_capture import ScreenCapture
 from .template_matcher import TemplateMatcher
+from .inventory_auto_detect import InventoryAutoDetector, InventoryRegion
 
 
 class SlotState(Enum):
@@ -41,21 +42,26 @@ class InventoryDetector:
         template_matcher: TemplateMatcher,
         inventory_config: dict,
         grimy_templates: list[dict],
+        auto_detect: bool = True,
     ):
         """Initialize inventory detector.
 
         Args:
             screen_capture: Screen capture instance
             template_matcher: Template matcher instance
-            inventory_config: Inventory position config
+            inventory_config: Inventory position config (used as fallback)
             grimy_templates: List of grimy herb template configs
+            auto_detect: Enable auto-detection of inventory position
         """
         self.screen = screen_capture
         self.matcher = template_matcher
         self.config = inventory_config
         self.grimy_templates = grimy_templates
+        self._auto_detect = auto_detect
+        self._auto_detector = InventoryAutoDetector() if auto_detect else None
+        self._detected_region: Optional[InventoryRegion] = None
 
-        # Pre-calculate slot positions
+        # Pre-calculate slot positions (may be updated by auto-detection)
         self.slots: list[InventorySlot] = self._init_slots()
 
     def _init_slots(self) -> list[InventorySlot]:
@@ -63,12 +69,12 @@ class InventoryDetector:
         slots = []
         inv = self.config
 
-        for row in range(inv["rows"]):
-            for col in range(inv["cols"]):
-                index = row * inv["cols"] + col
+        for row in range(inv.get("rows", 7)):
+            for col in range(inv.get("cols", 4)):
+                index = row * inv.get("cols", 4) + col
                 # Calculate center of slot
-                x = inv["x"] + col * inv["slot_width"] + inv["slot_width"] // 2
-                y = inv["y"] + row * inv["slot_height"] + inv["slot_height"] // 2
+                x = inv.get("x", 563) + col * inv.get("slot_width", 42) + inv.get("slot_width", 42) // 2
+                y = inv.get("y", 208) + row * inv.get("slot_height", 36) + inv.get("slot_height", 36) // 2
 
                 slots.append(
                     InventorySlot(
@@ -81,6 +87,44 @@ class InventoryDetector:
                 )
 
         return slots
+
+    def update_inventory_region(self, region: InventoryRegion) -> None:
+        """Update inventory region and recalculate slot positions.
+
+        Args:
+            region: New inventory region
+        """
+        self.config = {
+            "x": region.x,
+            "y": region.y,
+            "slot_width": region.slot_width,
+            "slot_height": region.slot_height,
+            "cols": region.cols,
+            "rows": region.rows,
+        }
+        self._detected_region = region
+        self.slots = self._init_slots()
+
+    def auto_detect_inventory(self) -> bool:
+        """Auto-detect inventory position in current window.
+
+        Returns:
+            True if detection successful
+        """
+        if not self._auto_detector:
+            return False
+
+        screen_image = self.screen.capture_window()
+        if screen_image is None:
+            return False
+
+        region = self._auto_detector.detect_with_fallback(screen_image, self.config)
+
+        if region.confidence > 0.5:
+            self.update_inventory_region(region)
+            return True
+
+        return False
 
     def get_slot_screen_coords(self, slot_index: int) -> tuple[int, int]:
         """Get screen coordinates for a slot.
@@ -107,6 +151,10 @@ class InventoryDetector:
         Returns:
             List of InventorySlots with updated states
         """
+        # Auto-detect inventory on first run if enabled
+        if self._auto_detect and self._detected_region is None:
+            self.auto_detect_inventory()
+
         # Capture inventory region
         inv_image = self.screen.capture_inventory(self.config)
         if inv_image is None:

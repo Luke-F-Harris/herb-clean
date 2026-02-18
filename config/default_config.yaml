@@ -4,7 +4,11 @@
 # Window settings
 window:
   title: "RuneLite"
-  # Inventory position relative to window (adjust for your setup)
+  # Auto-detect inventory position (recommended)
+  auto_detect_inventory: true
+
+  # Manual inventory position (used as fallback if auto-detect fails)
+  # These values are typical for RuneLite in fixed mode
   inventory:
     x: 563
     y: 208
