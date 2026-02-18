@@ -176,14 +176,25 @@ def main():
     bank_region = bank_detector._get_bank_item_region(window_img)
 
     # Also get button positions for visualization
-    close_match = matcher.match(
-        window_img,
-        config['bank']['close_button_template']
-    )
-    deposit_match = matcher.match(
-        window_img,
-        config['bank']['deposit_all_template']
-    )
+    close_template = config['bank']['close_button_template']
+    deposit_template = config['bank']['deposit_all_template']
+
+    close_match = matcher.match(window_img, close_template)
+    deposit_match = matcher.match(window_img, deposit_template)
+
+    # Log template detection results
+    print()
+    print("Template Detection Results:")
+    print("-" * 40)
+    if close_match.found:
+        print(f"  ✓ {close_template}: FOUND (conf: {close_match.confidence:.3f})")
+    else:
+        print(f"  ✗ {close_template}: NOT FOUND (conf: {close_match.confidence:.3f})")
+    if deposit_match.found:
+        print(f"  ✓ {deposit_template}: FOUND (conf: {deposit_match.confidence:.3f})")
+    else:
+        print(f"  ✗ {deposit_template}: NOT FOUND (conf: {deposit_match.confidence:.3f})")
+    print()
 
     if bank_region:
         x, y, width, height = bank_region
@@ -406,14 +417,16 @@ def main():
             2
         )
 
-    # Draw close button location for debugging (BLUE)
+    # Draw close button location for debugging (MAGENTA - more visible)
     if close_match.found:
+        close_color = (255, 0, 255)  # Magenta - highly visible
+
         # Draw close button bounding box
         cv2.rectangle(
             vis_img,
             (close_match.x, close_match.y),
             (close_match.x + close_match.width, close_match.y + close_match.height),
-            (255, 0, 0),  # Blue rectangle
+            close_color,
             3
         )
 
@@ -422,7 +435,7 @@ def main():
             vis_img,
             (close_match.center_x, close_match.center_y),
             8,
-            (255, 0, 0),  # Blue circle
+            close_color,
             -1
         )
 
@@ -434,7 +447,7 @@ def main():
             (close_match.x - 150, close_match.y - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
-            (255, 0, 0),
+            close_color,
             2
         )
 
@@ -552,21 +565,53 @@ def main():
         )
         text_y += line_height
 
+    # Draw the cropped template in top-right corner so user can see what we're matching
+    if best_hybrid_template:
+        template_full = matcher.load_template(best_hybrid_template)
+        if template_full is not None:
+            # Crop to bottom 60% (what we actually match)
+            crop_pct = 0.60
+            t_h, t_w = template_full.shape[:2]
+            crop_y = int(t_h * (1.0 - crop_pct))
+            template_cropped = template_full[crop_y:, :]
+
+            # Scale up for visibility (3x)
+            scale_factor = 3
+            display_w = t_w * scale_factor
+            display_h_full = t_h * scale_factor
+            display_h_crop = template_cropped.shape[0] * scale_factor
+
+            template_full_scaled = cv2.resize(template_full, (display_w, display_h_full), interpolation=cv2.INTER_NEAREST)
+            template_crop_scaled = cv2.resize(template_cropped, (display_w, display_h_crop), interpolation=cv2.INTER_NEAREST)
+
+            # Position in top-right corner
+            margin = 20
+            full_x = img_w - display_w - margin
+            full_y = margin
+            crop_x = full_x - display_w - margin
+            crop_y_pos = margin
+
+            # Draw full template with border
+            cv2.rectangle(vis_img, (full_x - 2, full_y - 2), (full_x + display_w + 2, full_y + display_h_full + 2), (255, 255, 255), 2)
+            vis_img[full_y:full_y + display_h_full, full_x:full_x + display_w] = template_full_scaled
+
+            # Draw line showing where crop starts
+            crop_line_y = full_y + int(display_h_full * (1.0 - crop_pct))
+            cv2.line(vis_img, (full_x - 5, crop_line_y), (full_x + display_w + 5, crop_line_y), (0, 0, 255), 2)
+
+            # Label full template
+            cv2.putText(vis_img, "Full Template", (full_x, full_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+            # Draw cropped template with border
+            cv2.rectangle(vis_img, (crop_x - 2, crop_y_pos - 2), (crop_x + display_w + 2, crop_y_pos + display_h_crop + 2), (0, 255, 0), 2)
+            vis_img[crop_y_pos:crop_y_pos + display_h_crop, crop_x:crop_x + display_w] = template_crop_scaled
+
+            # Label cropped template
+            cv2.putText(vis_img, f"Cropped {int(crop_pct*100)}%", (crop_x, crop_y_pos - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
     # ALWAYS show visualization window
     print()
     print("Opening visualization window...")
-    print()
-    print("LEGEND:")
-    print("  - BLUE box/circle = Close button position")
-    print("  - YELLOW box = Bank search area (scale-aware!)")
-    if best_hybrid_match:
-        if best_hybrid_match.found:
-            print("  - GREEN box = Hybrid detection (PASSED threshold)")
-        else:
-            print("  - RED box = Best match (FAILED threshold)")
-    print("  - Text overlay (top-left) = Debug coordinates")
-    print("  - Text overlay (bottom-left) = Detection summary")
-    print()
 
     window_name = "Bank Herb Detection - Press any key to close"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
