@@ -276,7 +276,8 @@ def main():
 
     # Show Test 1 result
     cv2.imshow("Test 1: Inventory Detection", test1_img)
-    cv2.waitKey(100)  # Allow window to render on Windows (100ms)
+    for _ in range(5):
+        cv2.waitKey(100)  # Total 500ms for rendering on 4K displays
     print("\nShowing inventory detection...")
     print("Press ENTER in this terminal to continue...")
     input()
@@ -304,26 +305,40 @@ def main():
     test2_img = None
 
     if has_booth_template or has_chest_template:
+        # Create a faster matcher specifically for bank booth (fewer scale steps)
+        bank_matcher = TemplateMatcher(
+            templates_dir,
+            confidence_threshold=0.75,
+            multi_scale=True,
+            scale_range=(0.8, 1.2),  # Narrower range
+            scale_steps=3  # Fewer steps = faster
+        )
+
         # Retry loop for bank booth detection
         while True:
             # Capture fresh screenshot
             window_img = screen.capture_window()
 
-            print("Searching for bank booth/chest (this may take a moment on large screens)...")
+            print("Searching for bank booth/chest...")
+            print("  (This may take 5-15 seconds on 4K displays, please wait...)")
 
             # Get full match result (not just position)
             if has_booth_template:
-                booth_match = matcher.match(
+                print("  Trying bank_booth.png...", flush=True)
+                booth_match = bank_matcher.match(
                     window_img,
                     config.get('bank', {}).get('booth_template', 'bank_booth.png')
                 )
+                print("  Done.", flush=True)
 
             if has_chest_template and (booth_match is None or not booth_match.found):
                 # Try chest as fallback
-                booth_match = matcher.match(
+                print("  Trying bank_chest.png...", flush=True)
+                booth_match = bank_matcher.match(
                     window_img,
                     config.get('bank', {}).get('chest_template', 'bank_chest.png')
                 )
+                print("  Done.", flush=True)
 
             if booth_match and booth_match.found:
                 # Success! Convert to screen coordinates
@@ -375,7 +390,9 @@ def main():
     # Show Test 2 result (only if we have an image to show)
     if test2_img is not None:
         cv2.imshow("Test 2: Bank Booth Detection", test2_img)
-        cv2.waitKey(100)  # Allow window to render on Windows (100ms)
+        # Give Windows extra time to render large 4K images with drawings
+        for _ in range(5):
+            cv2.waitKey(100)  # Total 500ms for rendering
         print("\nShowing bank booth detection...")
         print("Press ENTER in this terminal to continue...")
         input()
@@ -446,7 +463,8 @@ def main():
 
     # Show Test 3 result
     cv2.imshow("Test 3: Bank Interface Detection", test3_img)
-    cv2.waitKey(100)  # Allow window to render on Windows (100ms)
+    for _ in range(5):
+        cv2.waitKey(100)  # Total 500ms for rendering on 4K displays
     print("\nShowing bank interface detection...")
     print("Press ENTER in this terminal to continue...")
     input()
@@ -495,7 +513,8 @@ def main():
 
     # Show Test 4 result
     cv2.imshow("Test 4: Grimy Herb Click Targets", test4_img)
-    cv2.waitKey(100)  # Allow window to render on Windows (100ms)
+    for _ in range(5):
+        cv2.waitKey(100)  # Total 500ms for rendering on 4K displays
     print("\nShowing grimy herb click targets...")
     print("Press ENTER in this terminal to continue...")
     input()
@@ -594,7 +613,8 @@ def main():
     # Show final composite
     print("\n" + "=" * 70)
     cv2.imshow("Test 5: Final Composite - All Detections", final_img)
-    cv2.waitKey(100)  # Allow window to render on Windows (100ms)
+    for _ in range(5):
+        cv2.waitKey(100)  # Total 500ms for rendering on 4K displays
     print("Showing final composite with ALL detections...")
     print("Press ENTER in this terminal to exit...")
     input()
