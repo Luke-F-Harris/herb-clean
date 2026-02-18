@@ -160,10 +160,62 @@ class BankDetector:
 
         return None
 
+    def _get_bank_item_region(self, screen_image: np.ndarray) -> Optional[tuple[int, int, int, int]]:
+        """Detect the bank item grid region to restrict search area.
+
+        Returns:
+            Tuple of (x, y, width, height) for bank item region, or None
+        """
+        # Find close button or deposit button to locate bank interface
+        close_match = self.matcher.match(
+            screen_image, self.config.get("close_button_template", "bank_close.png")
+        )
+        deposit_match = self.matcher.match(
+            screen_image, self.config.get("deposit_all_template", "deposit_all.png")
+        )
+
+        if not (close_match.found or deposit_match.found):
+            return None
+
+        # Use close button as primary anchor (top-right of bank)
+        if close_match.found:
+            # Bank close button is at top-right of bank interface
+            # Item grid is below and to the left
+            # Typical OSRS bank: ~900px wide, ~550px tall for item area
+            close_x = close_match.x
+            close_y = close_match.y
+
+            # Calculate bank item region
+            # Grid starts about 50px below title bar, extends left about 850px
+            x = max(0, close_x - 900)
+            y = max(0, close_y - 20)
+            width = min(950, screen_image.shape[1] - x)
+            height = min(600, screen_image.shape[0] - y)
+
+            return (x, y, width, height)
+
+        # Fallback: use deposit button as anchor (bottom of bank)
+        elif deposit_match.found:
+            # Deposit button is at bottom of bank interface
+            # Item grid is above
+            deposit_x = deposit_match.x
+            deposit_y = deposit_match.y
+
+            # Grid is centered above deposit button
+            x = max(0, deposit_x - 400)
+            y = max(0, deposit_y - 600)
+            width = min(900, screen_image.shape[1] - x)
+            height = min(550, deposit_y - y)
+
+            return (x, y, width, height)
+
+        return None
+
     def find_grimy_herb_in_bank(self) -> Optional[MatchResult]:
         """Find grimy herb in bank interface.
 
         Uses bottom-region matching to avoid stack number interference.
+        Only searches within the bank item grid to prevent false positives.
 
         Returns:
             MatchResult with position and dimensions, or None
@@ -172,15 +224,37 @@ class BankDetector:
         if screen_image is None:
             return self._cached_state.grimy_herb_location
 
+        # Get bank item region to restrict search area
+        bank_region = self._get_bank_item_region(screen_image)
+
+        if bank_region:
+            # Crop image to bank item area only
+            x, y, width, height = bank_region
+            cropped_image = screen_image[y:y+height, x:x+width]
+            search_image = cropped_image
+            offset_x = x
+            offset_y = y
+        else:
+            # Fallback: search full image if bank region not detected
+            search_image = screen_image
+            offset_x = 0
+            offset_y = 0
+
         for herb_config in self.grimy_templates:
             # Use bottom-region matching for bank items (avoids stack numbers)
             match = self.matcher.match_bottom_region(
-                screen_image,
+                search_image,
                 herb_config["template"],
                 region_percentage=0.65  # Use bottom 65% of item
             )
 
             if match.found:
+                # Adjust coordinates to account for cropped region
+                match.x += offset_x
+                match.y += offset_y
+                match.center_x += offset_x
+                match.center_y += offset_y
+
                 match_result = self._to_screen_coords(match)
                 self._cached_state.grimy_herb_location = match_result
                 return match_result

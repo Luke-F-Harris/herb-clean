@@ -127,6 +127,58 @@ def main():
     print(f"✓ Captured {window_img.shape[1]}x{window_img.shape[0]} image")
     print()
 
+    # Detect bank region to restrict search area
+    print("Detecting bank interface region...")
+
+    # Find close button to locate bank
+    close_match = matcher.match(
+        window_img,
+        config.get('bank', {}).get('close_button_template', 'bank_close.png')
+    )
+    deposit_match = matcher.match(
+        window_img,
+        config.get('bank', {}).get('deposit_all_template', 'deposit_all.png')
+    )
+
+    bank_region = None
+    if close_match.found:
+        # Use close button to calculate bank region
+        close_x = close_match.x
+        close_y = close_match.y
+        x = max(0, close_x - 900)
+        y = max(0, close_y - 20)
+        width = min(950, window_img.shape[1] - x)
+        height = min(600, window_img.shape[0] - y)
+        bank_region = (x, y, width, height)
+        print(f"✓ Bank region detected via close button: ({x}, {y}) {width}x{height}")
+    elif deposit_match.found:
+        # Fallback to deposit button
+        deposit_x = deposit_match.x
+        deposit_y = deposit_match.y
+        x = max(0, deposit_x - 400)
+        y = max(0, deposit_y - 600)
+        width = min(900, window_img.shape[1] - x)
+        height = min(550, deposit_y - y)
+        bank_region = (x, y, width, height)
+        print(f"✓ Bank region detected via deposit button: ({x}, {y}) {width}x{height}")
+    else:
+        print("⚠ Could not detect bank region - searching full image")
+        print("  Make sure bank is open with close/deposit button visible")
+
+    # Crop to bank region if detected
+    if bank_region:
+        x, y, width, height = bank_region
+        search_image = window_img[y:y+height, x:x+width]
+        offset_x = x
+        offset_y = y
+        print(f"✓ Cropped search area to {width}x{height} (bank items only)")
+    else:
+        search_image = window_img
+        offset_x = 0
+        offset_y = 0
+
+    print()
+
     grimy_templates = config.get('herbs', {}).get('grimy', [])
     print(f"Testing {len(grimy_templates)} herb templates...")
     print()
@@ -138,10 +190,23 @@ def main():
 
         print(f"  [{i+1}/{len(grimy_templates)}] Testing {herb_name}...", end=' ', flush=True)
 
-        # Test both methods
+        # Test both methods on bank region (or full image if no region)
         try:
-            standard_match = matcher.match(window_img, template_name)
-            region_match = matcher.match_bottom_region(window_img, template_name, 0.65)
+            standard_match = matcher.match(search_image, template_name)
+            region_match = matcher.match_bottom_region(search_image, template_name, 0.65)
+
+            # Adjust coordinates for offset
+            if standard_match.found:
+                standard_match.x += offset_x
+                standard_match.y += offset_y
+                standard_match.center_x += offset_x
+                standard_match.center_y += offset_y
+
+            if region_match.found:
+                region_match.x += offset_x
+                region_match.y += offset_y
+                region_match.center_x += offset_x
+                region_match.center_y += offset_y
 
             results.append({
                 'name': herb_name,
@@ -217,20 +282,31 @@ def main():
     if best['region_found']:
         vis_img = window_img.copy()
 
-        # Get match again for visualization
-        match = matcher.match_bottom_region(window_img, best['template'], 0.65)
+        # Draw bank region rectangle if detected
+        if bank_region:
+            x, y, width, height = bank_region
+            cv2.rectangle(vis_img, (x, y), (x + width, y + height), (0, 255, 255), 2)
+            cv2.putText(
+                vis_img,
+                "Bank Search Area",
+                (x + 10, y + 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 255),
+                2
+            )
 
-        # Convert to screen coords
-        bounds = screen.window_bounds
-        if bounds:
-            match.x += bounds.x
-            match.y += bounds.y
+        # Use the position from our results (already adjusted for offset)
+        match_x, match_y = best['region_pos']
 
-        # Draw box
+        # We need width/height, so re-match just to get dimensions
+        temp_match = matcher.match_bottom_region(search_image, best['template'], 0.65)
+
+        # Draw herb match box (green)
         cv2.rectangle(
             vis_img,
-            (match.x, match.y),
-            (match.x + match.width, match.y + match.height),
+            (match_x - temp_match.width // 2, match_y - temp_match.height // 2),
+            (match_x + temp_match.width // 2, match_y + temp_match.height // 2),
             (0, 255, 0),
             3
         )
@@ -240,7 +316,7 @@ def main():
         cv2.putText(
             vis_img,
             label,
-            (match.x, match.y - 10),
+            (match_x - temp_match.width // 2, match_y - temp_match.height // 2 - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
             (0, 255, 0),
