@@ -104,9 +104,11 @@ You need to capture template images from your RuneLite client:
 Edit `config/default_config.yaml`:
 
 ```yaml
-# Auto-detection is enabled by default - no need to adjust inventory position!
+# Auto-detection is enabled by default!
 window:
-  auto_detect_inventory: true  # Automatically finds inventory
+  auto_detect_inventory: true
+  # Optional: Use template for Resizable - Classic layout (recommended)
+  inventory_template: "inventory_template.png"  # See INVENTORY_SETUP_GUIDE.md
 
 # Adjust timing for speed vs. safety
 timing:
@@ -119,7 +121,7 @@ breaks:
     interval: [480, 900]  # 8-15 minutes between micro-breaks
 ```
 
-**Note:** The bot now auto-detects inventory position by looking for the brown/tan OSRS inventory background. Manual configuration is only used as a fallback if auto-detection fails.
+**For Resizable - Classic layout users:** See [INVENTORY_SETUP_GUIDE.md](INVENTORY_SETUP_GUIDE.md) for template-based detection setup (most reliable).
 
 ### 3. In-Game Setup
 
@@ -264,11 +266,13 @@ python .\venv\Scripts\pywin32_postinstall.py -install
 - Ensure GPU plugin settings match when capturing
 - Try lowering `vision.confidence_threshold` (default: 0.80)
 
-### Bot clicks wrong locations
+### Bot clicks wrong locations / Can't find inventory
+- **Resizable - Classic layout?** See [INVENTORY_SETUP_GUIDE.md](INVENTORY_SETUP_GUIDE.md) to set up template-based detection
 - Auto-detection should handle this automatically
-- Check logs for "Successfully auto-detected inventory" message
-- If auto-detection fails, manually set `window.auto_detect_inventory: false` and configure coordinates
-- Adjust `window.inventory` coordinates for your screen resolution/scaling
+- Check logs for "Successfully auto-detected inventory" or "Using smart default"
+- If color detection fails, the bot uses smart positioning (bottom-right)
+- **Best solution**: Capture an inventory template (see guide above)
+- **Alternative**: Manually set coordinates in `window.inventory`
 
 ## License
 

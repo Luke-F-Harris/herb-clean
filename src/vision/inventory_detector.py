@@ -43,6 +43,7 @@ class InventoryDetector:
         inventory_config: dict,
         grimy_templates: list[dict],
         auto_detect: bool = True,
+        inventory_template_path: Optional[str] = None,
     ):
         """Initialize inventory detector.
 
@@ -52,13 +53,21 @@ class InventoryDetector:
             inventory_config: Inventory position config (used as fallback)
             grimy_templates: List of grimy herb template configs
             auto_detect: Enable auto-detection of inventory position
+            inventory_template_path: Optional path to inventory template image
         """
         self.screen = screen_capture
         self.matcher = template_matcher
         self.config = inventory_config
         self.grimy_templates = grimy_templates
         self._auto_detect = auto_detect
-        self._auto_detector = InventoryAutoDetector() if auto_detect else None
+
+        # Initialize auto-detector with template if provided
+        template_path = None
+        if auto_detect and inventory_template_path:
+            from pathlib import Path
+            template_path = Path(inventory_template_path)
+
+        self._auto_detector = InventoryAutoDetector(template_path) if auto_detect else None
         self._detected_region: Optional[InventoryRegion] = None
 
         # Pre-calculate slot positions (may be updated by auto-detection)

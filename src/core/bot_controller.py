@@ -51,12 +51,19 @@ class BotController:
             scale_range=tuple(self.config.vision.get("scale_range", [0.8, 1.2])),
             scale_steps=self.config.vision.get("scale_steps", 5),
         )
+        # Get inventory template path if configured
+        inventory_template = self.config.window.get("inventory_template")
+        inventory_template_path = None
+        if inventory_template:
+            inventory_template_path = self.config.templates_dir / inventory_template
+
         self.inventory = InventoryDetector(
             screen_capture=self.screen,
             template_matcher=self.template_matcher,
             inventory_config=self.config.window.get("inventory", {}),
             grimy_templates=self.config.get("herbs.grimy", []),
             auto_detect=self.config.window.get("auto_detect_inventory", True),
+            inventory_template_path=str(inventory_template_path) if inventory_template_path else None,
         )
         self.bank = BankDetector(
             screen_capture=self.screen,
