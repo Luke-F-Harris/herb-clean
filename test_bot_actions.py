@@ -672,7 +672,7 @@ def main():
     critical_failures = []
     if test_results.get("Bank Booth") == "❌ FAIL":
         critical_failures.append("Bank booth detection")
-    if bank_state.is_open and test_results.get("Grimy Herbs in Bank") == "⚠ WARN":
+    if is_bank_open and test_results.get("Grimy Herbs in Bank") == "⚠ WARN":
         critical_failures.append("Grimy herbs in bank")
 
     if critical_failures:
@@ -685,7 +685,7 @@ def main():
         print("\nOptional improvements:")
         if test_results.get("Deposit Button") == "⚠ WARN":
             print("  - Capture deposit_all.png template")
-        if not bank_state.close_button:
+        if not close_match.found:
             print("  - Capture bank_close.png template (ESC works as fallback)")
         if test_results.get("Grimy Herbs in Inventory") == "⚠ WARN":
             print("  - Put grimy herbs in inventory to test herb detection")
