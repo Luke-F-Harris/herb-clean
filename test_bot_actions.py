@@ -410,14 +410,54 @@ def main():
 
     # Capture fresh screenshot with bank open
     window_img = screen.capture_window()
-    bank_state = bank.detect_bank_state()
 
-    if bank_state.is_open:
+    # Detect bank interface elements directly to get full MatchResult with dimensions
+    deposit_match = matcher.match(
+        window_img,
+        config.get('bank', {}).get('deposit_all_template', 'deposit_all.png')
+    )
+    close_match = matcher.match(
+        window_img,
+        config.get('bank', {}).get('close_button_template', 'bank_close.png')
+    )
+
+    # Look for grimy herbs in bank
+    herb_match = None
+    for herb_config in config.get('herbs', {}).get('grimy', []):
+        herb_match = matcher.match(window_img, herb_config['template'])
+        if herb_match.found:
+            break
+
+    # Convert to screen coordinates
+    bounds = screen.window_bounds
+    if deposit_match.found and bounds:
+        deposit_match.x += bounds.x
+        deposit_match.y += bounds.y
+        deposit_match.center_x += bounds.x
+        deposit_match.center_y += bounds.y
+
+    if close_match.found and bounds:
+        close_match.x += bounds.x
+        close_match.y += bounds.y
+        close_match.center_x += bounds.x
+        close_match.center_y += bounds.y
+
+    if herb_match and herb_match.found and bounds:
+        herb_match.x += bounds.x
+        herb_match.y += bounds.y
+        herb_match.center_x += bounds.x
+        herb_match.center_y += bounds.y
+
+    # Check if bank is open
+    is_bank_open = deposit_match.found or close_match.found
+
+    if is_bank_open:
         print("✓ Bank interface detected as OPEN")
 
         # Test deposit button
-        if bank_state.deposit_button:
-            print(f"  ✓ Deposit button: ({bank_state.deposit_button[0]}, {bank_state.deposit_button[1]})")
+        if deposit_match.found:
+            print(f"  ✓ Deposit button: ({deposit_match.center_x}, {deposit_match.center_y})")
+            print(f"    Clickable area: {deposit_match.width}x{deposit_match.height} pixels")
             test_results["Deposit Button"] = "✓ PASS"
         else:
             print("  ⚠ Deposit button not found")
@@ -425,14 +465,16 @@ def main():
             test_results["Deposit Button"] = "⚠ WARN"
 
         # Test close button
-        if bank_state.close_button:
-            print(f"  ✓ Close button: ({bank_state.close_button[0]}, {bank_state.close_button[1]})")
+        if close_match.found:
+            print(f"  ✓ Close button: ({close_match.center_x}, {close_match.center_y})")
+            print(f"    Clickable area: {close_match.width}x{close_match.height} pixels")
         else:
             print("  ⚠ Close button not found (will use ESC key)")
 
         # Test grimy herb in bank
-        if bank_state.grimy_herb_location:
-            print(f"  ✓ Grimy herbs in bank: ({bank_state.grimy_herb_location[0]}, {bank_state.grimy_herb_location[1]})")
+        if herb_match and herb_match.found:
+            print(f"  ✓ Grimy herbs in bank: ({herb_match.center_x}, {herb_match.center_y})")
+            print(f"    Clickable area: {herb_match.width}x{herb_match.height} pixels")
             test_results["Grimy Herbs in Bank"] = "✓ PASS"
         else:
             print("  ⚠ Grimy herbs not found in bank")
@@ -440,17 +482,18 @@ def main():
             print("    Capture template for your herb type (e.g., grimy_ranarr.png)")
             test_results["Grimy Herbs in Bank"] = "⚠ WARN"
 
-        # Draw all bank interface elements
+        # Draw all bank interface elements with boxes
         test3_img = window_img.copy()
         draw_inventory_grid(test3_img, inventory, (0, 255, 0))
         draw_inventory_border(test3_img, inventory, (0, 255, 0))
 
-        if bank_state.deposit_button:
-            draw_detection(test3_img, bank_state.deposit_button, "DEPOSIT", (0, 255, 255), 20)
-        if bank_state.close_button:
-            draw_detection(test3_img, bank_state.close_button, "CLOSE", (0, 165, 255), 20)
-        if bank_state.grimy_herb_location:
-            draw_detection(test3_img, bank_state.grimy_herb_location, "HERBS", (255, 0, 255), 25)
+        # Draw clickable boxes for each element
+        if deposit_match.found:
+            draw_clickable_box(test3_img, deposit_match, "DEPOSIT BUTTON", (0, 255, 255))
+        if close_match.found:
+            draw_clickable_box(test3_img, close_match, "CLOSE BUTTON", (0, 165, 255))
+        if herb_match and herb_match.found:
+            draw_clickable_box(test3_img, herb_match, "GRIMY HERBS", (255, 0, 255))
 
         test_results["Bank Interface"] = "✓ PASS"
     else:
@@ -534,39 +577,68 @@ def main():
 
     # Re-detect everything for final composite
     inventory.detect_inventory_state()
-    bank_state = bank.detect_bank_state()
     grimy_slots = inventory.get_grimy_slots()
 
     # Get bank booth match result for box visualization
-    booth_match = matcher.match(
+    booth_match = bank_matcher.match(
         window_img,
         config.get('bank', {}).get('booth_template', 'bank_booth.png')
     )
     if not booth_match.found:
-        booth_match = matcher.match(
+        booth_match = bank_matcher.match(
             window_img,
             config.get('bank', {}).get('chest_template', 'bank_chest.png')
         )
-    if booth_match.found:
-        bounds = screen.window_bounds
-        if bounds:
-            booth_match.x += bounds.x
-            booth_match.y += bounds.y
+
+    # Get bank interface elements
+    deposit_match_final = matcher.match(
+        window_img,
+        config.get('bank', {}).get('deposit_all_template', 'deposit_all.png')
+    )
+    close_match_final = matcher.match(
+        window_img,
+        config.get('bank', {}).get('close_button_template', 'bank_close.png')
+    )
+    herb_match_final = None
+    for herb_config in config.get('herbs', {}).get('grimy', []):
+        herb_match_final = matcher.match(window_img, herb_config['template'])
+        if herb_match_final.found:
+            break
+
+    # Convert to screen coordinates
+    bounds = screen.window_bounds
+    if booth_match.found and bounds:
+        booth_match.x += bounds.x
+        booth_match.y += bounds.y
+
+    if deposit_match_final.found and bounds:
+        deposit_match_final.x += bounds.x
+        deposit_match_final.y += bounds.y
+
+    if close_match_final.found and bounds:
+        close_match_final.x += bounds.x
+        close_match_final.y += bounds.y
+
+    if herb_match_final and herb_match_final.found and bounds:
+        herb_match_final.x += bounds.x
+        herb_match_final.y += bounds.y
 
     # Draw ALL detections on one image
     draw_inventory_grid(final_img, inventory, (0, 255, 0))
     draw_inventory_border(final_img, inventory, (0, 255, 0))
 
-    draw_clickable_box(final_img, booth_match, "BANK", (255, 255, 0))
+    # Draw bank booth
+    draw_clickable_box(final_img, booth_match, "BANK BOOTH", (255, 255, 0))
 
-    if bank_state.is_open:
-        if bank_state.deposit_button:
-            draw_detection(final_img, bank_state.deposit_button, "DEPOSIT", (0, 255, 255), 20)
-        if bank_state.close_button:
-            draw_detection(final_img, bank_state.close_button, "CLOSE", (0, 165, 255), 20)
-        if bank_state.grimy_herb_location:
-            draw_detection(final_img, bank_state.grimy_herb_location, "HERBS", (255, 0, 255), 25)
+    # Draw bank interface elements with boxes
+    if deposit_match_final.found:
+        draw_clickable_box(final_img, deposit_match_final, "DEPOSIT BUTTON", (0, 255, 255))
+    if close_match_final.found:
+        draw_clickable_box(final_img, close_match_final, "CLOSE BUTTON", (0, 165, 255))
+    if herb_match_final and herb_match_final.found:
+        draw_clickable_box(final_img, herb_match_final, "GRIMY HERBS (BANK)", (255, 0, 255))
 
+    # Draw inventory herb slots
     for slot in grimy_slots:
         screen_x, screen_y = inventory.get_slot_screen_coords(slot.index)
         draw_detection(final_img, (screen_x, screen_y), f"H{slot.index}", (0, 255, 0), 15)
