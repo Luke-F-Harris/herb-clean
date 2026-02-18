@@ -187,11 +187,15 @@ class BankDetector:
             scale = close_match.scale
 
             # Scale the offsets proportionally
-            # Base measurements from 1920x1080 reference
-            offset_x = int(900 * scale)
-            offset_y = int(20 * scale)
-            bank_width = int(950 * scale)
-            bank_height = int(600 * scale)
+            # Base measurements from actual OSRS bank panel at 1920x1080:
+            # - Bank panel width: ~520 pixels
+            # - Close button is ~10px from right edge of panel
+            # - So offset from close button to left edge: 520 - 10 = 510px
+            # - Item grid starts ~50px from top, is ~480px wide, ~460px tall
+            offset_x = int(510 * scale)  # Distance from close button to left edge of panel
+            offset_y = int(50 * scale)   # Distance from close button to top of item grid
+            bank_width = int(480 * scale)  # Item grid width
+            bank_height = int(460 * scale)  # Item grid height
 
             # Calculate bank item region
             x = max(0, close_match.x - offset_x)
@@ -207,10 +211,12 @@ class BankDetector:
             scale = deposit_match.scale
 
             # Scale the offsets proportionally
-            offset_x = int(400 * scale)
-            offset_y = int(600 * scale)
-            bank_width = int(900 * scale)
-            bank_height = int(550 * scale)
+            # Deposit button is at bottom-center of bank panel
+            # Need to go up and left to find item grid
+            offset_x = int(240 * scale)  # Half panel width (deposit is centered)
+            offset_y = int(520 * scale)  # Distance from deposit to top of item grid
+            bank_width = int(480 * scale)
+            bank_height = int(460 * scale)
 
             # Grid is centered above deposit button
             x = max(0, deposit_match.x - offset_x)

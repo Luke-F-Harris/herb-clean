@@ -389,6 +389,50 @@ def main():
             2
         )
 
+    # Draw close button location for debugging (BLUE)
+    if close_match.found:
+        # Draw close button bounding box
+        cv2.rectangle(
+            vis_img,
+            (close_match.x, close_match.y),
+            (close_match.x + close_match.width, close_match.y + close_match.height),
+            (255, 0, 0),  # Blue rectangle
+            3
+        )
+
+        # Draw circle at center
+        cv2.circle(
+            vis_img,
+            (close_match.center_x, close_match.center_y),
+            8,
+            (255, 0, 0),  # Blue circle
+            -1
+        )
+
+        # Add label
+        close_label = f"Close Button (scale: {close_match.scale:.2f}x)"
+        cv2.putText(
+            vis_img,
+            close_label,
+            (close_match.x - 150, close_match.y - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 0, 0),
+            2
+        )
+
+        # Draw arrow from close button to bank region to show offset
+        if bank_region:
+            bank_x, bank_y, _, _ = bank_region
+            cv2.arrowedLine(
+                vis_img,
+                (close_match.center_x, close_match.center_y),
+                (bank_x + 20, bank_y + 20),
+                (255, 128, 0),  # Orange arrow
+                3,
+                tipLength=0.3
+            )
+
     # Draw HYBRID detection result if we have any match (even if failed threshold)
     if best_hybrid_match:
         match_x = best_hybrid_match.center_x
@@ -420,17 +464,53 @@ def main():
             2
         )
 
+    # Add coordinate debug info overlay
+    if bank_region and close_match.found:
+        x, y, width, height = bank_region
+        offset_x_actual = close_match.x - x
+        offset_y_actual = close_match.y - y
+
+        debug_text = [
+            f"Screen: {vis_img.shape[1]}x{vis_img.shape[0]}",
+            f"Close: ({close_match.x}, {close_match.y})",
+            f"Bank: ({x}, {y}) {width}x{height}",
+            f"Offset: ({offset_x_actual}, {offset_y_actual})",
+            f"Scale: {close_match.scale:.2f}x",
+        ]
+
+        # Draw semi-transparent background for text
+        overlay = vis_img.copy()
+        cv2.rectangle(overlay, (5, 70), (400, 220), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.6, vis_img, 0.4, 0, vis_img)
+
+        # Draw text
+        text_y = 95
+        for line in debug_text:
+            cv2.putText(
+                vis_img,
+                line,
+                (15, text_y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (255, 255, 255),
+                1
+            )
+            text_y += 25
+
     # ALWAYS show visualization window
     print()
     print("Opening visualization window...")
     print()
     print("LEGEND:")
+    print("  - BLUE box/circle = Close button position")
+    print("  - ORANGE arrow = Offset from close button to bank region")
     print("  - YELLOW box = Bank search area (scale-aware!)")
     if best_hybrid_match:
         if best_hybrid_match.found:
             print("  - GREEN box = Hybrid detection (PASSED threshold)")
         else:
             print("  - RED box = Best match (FAILED threshold)")
+    print("  - Text overlay (top-left) = Debug coordinates")
     print()
 
     window_name = "Bank Herb Detection - Press any key to close"
