@@ -115,6 +115,34 @@ def draw_inventory_border(image, inventory_detector, color=(0, 255, 0)):
                   (screen_x + width + 2, screen_y + height + 2), color, 3)
 
 
+def draw_clickable_box(image, match_result, label, color=(0, 255, 0)):
+    """Draw a rectangular box showing clickable area from template match."""
+    if match_result and match_result.found:
+        # Get bounds
+        x = match_result.x
+        y = match_result.y
+        width = match_result.width
+        height = match_result.height
+
+        # Draw thick border box (like inventory)
+        cv2.rectangle(image, (x, y), (x + width, y + height), color, 3)
+
+        # Add label with background
+        text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+        label_x = x
+        label_y = y - 10
+
+        # Draw label background
+        cv2.rectangle(image,
+                      (label_x, label_y - text_size[1] - 5),
+                      (label_x + text_size[0] + 10, label_y + 5),
+                      (0, 0, 0), -1)
+
+        # Draw label text
+        cv2.putText(image, label, (label_x + 5, label_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+
 def main():
     """Test all bot actions with sequential visual feedback."""
     print("=" * 70)
@@ -156,6 +184,41 @@ def main():
 
     print("✓ Components initialized\n")
 
+    # Validate templates
+    print("Checking for template files...")
+    missing_templates = []
+
+    # Check grimy herb templates
+    for herb_config in config.get('herbs', {}).get('grimy', []):
+        template_name = herb_config["template"]
+        template_path = templates_dir / template_name
+        if not template_path.exists():
+            missing_templates.append(template_name)
+
+    # Check bank templates
+    bank_templates = ["bank_booth.png", "bank_chest.png", "deposit_all.png"]
+    for template in bank_templates:
+        template_path = templates_dir / template
+        if not template_path.exists():
+            missing_templates.append(template)
+
+    if missing_templates:
+        print("⚠ WARNING: Missing template files!")
+        print("  The following templates were not found:")
+        for template in missing_templates:
+            print(f"    - {template}")
+        print()
+        print("  Without templates, herb detection will not work.")
+        print("  See INVENTORY_SETUP_GUIDE.md for instructions on capturing templates.")
+        print()
+        response = input("Continue anyway? (y/n): ")
+        if response.lower() != 'y':
+            print("Exiting...")
+            return 1
+        print()
+    else:
+        print("✓ All template files found\n")
+
     # Storage for test results
     test_results = {}
 
@@ -193,15 +256,29 @@ def main():
     print(f"  Clean herbs: {clean_count}")
     print(f"  Empty slots: {empty_count}")
 
+    # Warning if no herbs detected
+    if grimy_count == 0:
+        print()
+        print("⚠ WARNING: No grimy herbs detected in inventory")
+        if missing_templates:
+            print("  REASON: Template files are missing (see warning above)")
+            print("  ACTION: Capture grimy herb template files to enable detection")
+        else:
+            print("  Possible reasons:")
+            print("  - No grimy herbs in inventory")
+            print("  - Template images don't match your herb type/zoom level")
+            print("  - Try recapturing templates at your current zoom level")
+
     # Draw inventory visualization
     test1_img = window_img.copy()
     draw_inventory_grid(test1_img, inventory, (0, 255, 0))
     draw_inventory_border(test1_img, inventory, (0, 255, 0))
 
     # Show Test 1 result
-    print("\nShowing inventory detection... (Press any key to continue)")
     cv2.imshow("Test 1: Inventory Detection", test1_img)
-    cv2.waitKey(0)
+    print("\nShowing inventory detection...")
+    print("Press ENTER in this terminal to continue...")
+    input()
     cv2.destroyAllWindows()
 
     test_results["Window Detection"] = "✓ PASS"
@@ -217,10 +294,31 @@ def main():
 
     # Capture fresh screenshot
     window_img = screen.capture_window()
-    booth_pos = bank.find_bank_booth()
 
-    if booth_pos:
-        print(f"✓ Bank booth detected at ({booth_pos[0]}, {booth_pos[1]})")
+    # Get full match result (not just position)
+    booth_match = matcher.match(
+        window_img,
+        config.get('bank', {}).get('booth_template', 'bank_booth.png')
+    )
+
+    if not booth_match.found:
+        # Try chest as fallback
+        booth_match = matcher.match(
+            window_img,
+            config.get('bank', {}).get('chest_template', 'bank_chest.png')
+        )
+
+    if booth_match.found:
+        # Convert to screen coordinates
+        bounds = screen.window_bounds
+        if bounds:
+            booth_match.x += bounds.x
+            booth_match.y += bounds.y
+            booth_match.center_x += bounds.x
+            booth_match.center_y += bounds.y
+
+        print(f"✓ Bank booth detected at ({booth_match.center_x}, {booth_match.center_y})")
+        print(f"  Clickable area: {booth_match.width}x{booth_match.height} pixels")
         test_results["Bank Booth"] = "✓ PASS"
     else:
         print("❌ Could not find bank booth/chest")
@@ -234,13 +332,13 @@ def main():
     test2_img = window_img.copy()
     draw_inventory_grid(test2_img, inventory, (0, 255, 0))
     draw_inventory_border(test2_img, inventory, (0, 255, 0))
-    if booth_pos:
-        draw_detection(test2_img, booth_pos, "BANK", (255, 255, 0), 30)
+    draw_clickable_box(test2_img, booth_match, "BANK", (255, 255, 0))
 
     # Show Test 2 result
-    print("\nShowing bank booth detection... (Press any key to continue)")
     cv2.imshow("Test 2: Bank Booth Detection", test2_img)
-    cv2.waitKey(0)
+    print("\nShowing bank booth detection...")
+    print("Press ENTER in this terminal to continue...")
+    input()
     cv2.destroyAllWindows()
 
     # ========================================================================
@@ -307,9 +405,10 @@ def main():
         test_results["Bank Interface"] = "⚠ SKIP"
 
     # Show Test 3 result
-    print("\nShowing bank interface detection... (Press any key to continue)")
     cv2.imshow("Test 3: Bank Interface Detection", test3_img)
-    cv2.waitKey(0)
+    print("\nShowing bank interface detection...")
+    print("Press ENTER in this terminal to continue...")
+    input()
     cv2.destroyAllWindows()
 
     # ========================================================================
@@ -354,9 +453,10 @@ def main():
         draw_detection(test4_img, (screen_x, screen_y), f"HERB{slot.index}", (0, 255, 0), 15)
 
     # Show Test 4 result
-    print("\nShowing grimy herb click targets... (Press any key to continue)")
     cv2.imshow("Test 4: Grimy Herb Click Targets", test4_img)
-    cv2.waitKey(0)
+    print("\nShowing grimy herb click targets...")
+    print("Press ENTER in this terminal to continue...")
+    input()
     cv2.destroyAllWindows()
 
     # ========================================================================
@@ -374,15 +474,29 @@ def main():
     # Re-detect everything for final composite
     inventory.detect_inventory_state()
     bank_state = bank.detect_bank_state()
-    booth_pos = bank.find_bank_booth()
     grimy_slots = inventory.get_grimy_slots()
+
+    # Get bank booth match result for box visualization
+    booth_match = matcher.match(
+        window_img,
+        config.get('bank', {}).get('booth_template', 'bank_booth.png')
+    )
+    if not booth_match.found:
+        booth_match = matcher.match(
+            window_img,
+            config.get('bank', {}).get('chest_template', 'bank_chest.png')
+        )
+    if booth_match.found:
+        bounds = screen.window_bounds
+        if bounds:
+            booth_match.x += bounds.x
+            booth_match.y += bounds.y
 
     # Draw ALL detections on one image
     draw_inventory_grid(final_img, inventory, (0, 255, 0))
     draw_inventory_border(final_img, inventory, (0, 255, 0))
 
-    if booth_pos:
-        draw_detection(final_img, booth_pos, "BANK", (255, 255, 0), 30)
+    draw_clickable_box(final_img, booth_match, "BANK", (255, 255, 0))
 
     if bank_state.is_open:
         if bank_state.deposit_button:
@@ -437,9 +551,10 @@ def main():
 
     # Show final composite
     print("\n" + "=" * 70)
-    print("Showing final composite with ALL detections... (Press any key to exit)")
     cv2.imshow("Test 5: Final Composite - All Detections", final_img)
-    cv2.waitKey(0)
+    print("Showing final composite with ALL detections...")
+    print("Press ENTER in this terminal to exit...")
+    input()
     cv2.destroyAllWindows()
 
     print("\n" + "=" * 70)
