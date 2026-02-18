@@ -134,21 +134,31 @@ def main():
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
     print("\n" + "=" * 70)
-    print("Displaying debug image...")
+    print("Opening visualization window...")
     print("=" * 70)
-    print("GREEN box = Where inventory was detected")
-    print("RED box = Default config position")
-    print("Dots = Slot centers")
-    print("\nPress any key to close...")
+    print("VISUALIZATION:")
+    print("  - GREEN box = Where inventory was detected")
+    print("  - RED box = Default config position")
+    print("  - Dots = Slot centers (numbered)")
+    print("=" * 70)
 
-    cv2.imshow("Inventory Detection Debug", debug_img)
+    window_name = "Inventory Detection - Press any key to close"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.imshow(window_name, debug_img)
+
+    # Try to bring window to front
+    try:
+        cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
+    except:
+        pass  # Not all platforms support this
+
+    print()
+    print("✓ Window opened! Look for the image window.")
+    print("  (It may appear behind other windows)")
+    print()
+    print("Press any key in the IMAGE WINDOW to close...")
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-
-    # Save debug image
-    output_path = Path(__file__).parent / "inventory_debug.png"
-    cv2.imwrite(str(output_path), debug_img)
-    print(f"\nDebug image saved to: {output_path}")
 
     return 0
 

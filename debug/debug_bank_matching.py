@@ -323,16 +323,32 @@ def main():
             2
         )
 
-        # Save image
-        output_path = Path(__file__).parent / "debug_bank_match.png"
-        cv2.imwrite(str(output_path), vis_img)
-        print(f"✓ Saved visualization to: {output_path}")
-
-        cv2.imshow("Best Match", vis_img)
+        # Show visualization window
         print()
-        print("Showing visualization window...")
-        print("Press ENTER in this terminal to exit...")
-        input()
+        print("Opening visualization window...")
+        print("=" * 70)
+        print("VISUALIZATION:")
+        print("  - YELLOW box = Bank search area")
+        print("  - GREEN box = Detected herb")
+        print("  - Label shows herb name and confidence")
+        print("=" * 70)
+
+        window_name = "Bank Herb Detection - Press any key to close"
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.imshow(window_name, vis_img)
+
+        # Try to bring window to front
+        try:
+            cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
+        except:
+            pass  # Not all platforms support this
+
+        print()
+        print("✓ Window opened! Look for the image window.")
+        print("  (It may appear behind other windows)")
+        print()
+        print("Press any key in the IMAGE WINDOW to close...")
+        cv2.waitKey(0)
         cv2.destroyAllWindows()
     else:
         print("⚠ No match found - skipping visualization")
