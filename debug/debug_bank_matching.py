@@ -175,43 +175,79 @@ def main():
     # Get scale-aware bank region using the improved method
     bank_region = bank_detector._get_bank_item_region(window_img)
 
-    # Also get button positions for visualization
+    # Also get button positions for visualization (all 4 anchors)
     close_template = config['bank']['close_button_template']
     deposit_template = config['bank']['deposit_all_template']
+    insert_template = config['bank'].get('insert_button_template', 'bank_insert.png')
+    menu_template = config['bank'].get('menu_button_template', 'bank_menu.png')
 
     close_match = matcher.match(window_img, close_template)
     deposit_match = matcher.match(window_img, deposit_template)
+    insert_match = matcher.match(window_img, insert_template)
+    menu_match = matcher.match(window_img, menu_template)
 
     # Log template detection results
     print()
-    print("Template Detection Results:")
+    print("Anchor Button Detection Results:")
     print("-" * 40)
+
+    # Count how many anchors found
+    anchors_found = sum([
+        menu_match.found,
+        close_match.found,
+        insert_match.found,
+        deposit_match.found
+    ])
+    print(f"  Anchors found: {anchors_found}/4")
+    print()
+
+    # Top-left: Menu button
+    if menu_match.found:
+        print(f"  ✓ TOP-LEFT (Menu): {menu_template}")
+        print(f"      Position: ({menu_match.x}, {menu_match.y})")
+        print(f"      Size: {menu_match.width}x{menu_match.height}")
+    else:
+        print(f"  ✗ TOP-LEFT (Menu): NOT FOUND (conf: {menu_match.confidence:.3f})")
+
+    # Top-right: Close button
     if close_match.found:
-        print(f"  ✓ {close_template}: FOUND (conf: {close_match.confidence:.3f})")
+        print(f"  ✓ TOP-RIGHT (Close): {close_template}")
         print(f"      Position: ({close_match.x}, {close_match.y})")
         print(f"      Size: {close_match.width}x{close_match.height}")
-        print(f"      Template scale: {close_match.scale:.2f}x (NOT used for offsets)")
-        print(f"      Button-based scale: {close_match.width / 21.0:.2f}x (21px reference)")
     else:
-        print(f"  ✗ {close_template}: NOT FOUND (conf: {close_match.confidence:.3f})")
+        print(f"  ✗ TOP-RIGHT (Close): NOT FOUND (conf: {close_match.confidence:.3f})")
+
+    # Bottom-left: Insert button
+    if insert_match.found:
+        print(f"  ✓ BOTTOM-LEFT (Insert): {insert_template}")
+        print(f"      Position: ({insert_match.x}, {insert_match.y})")
+        print(f"      Size: {insert_match.width}x{insert_match.height}")
+    else:
+        print(f"  ✗ BOTTOM-LEFT (Insert): NOT FOUND (conf: {insert_match.confidence:.3f})")
+
+    # Bottom-center: Deposit button
     if deposit_match.found:
-        print(f"  ✓ {deposit_template}: FOUND (conf: {deposit_match.confidence:.3f})")
+        print(f"  ✓ BOTTOM-CENTER (Deposit): {deposit_template}")
         print(f"      Position: ({deposit_match.x}, {deposit_match.y})")
         print(f"      Size: {deposit_match.width}x{deposit_match.height}")
-        print(f"      Template scale: {deposit_match.scale:.2f}x (NOT used for offsets)")
-        print(f"      Button-based scale: {deposit_match.width / 35.0:.2f}x (35px reference)")
     else:
-        print(f"  ✗ {deposit_template}: NOT FOUND (conf: {deposit_match.confidence:.3f})")
+        print(f"  ✗ BOTTOM-CENTER (Deposit): NOT FOUND (conf: {deposit_match.confidence:.3f})")
 
     # Show which detection method will be used
     print()
-    if close_match.found and deposit_match.found:
+    if menu_match.found and close_match.found and insert_match.found and deposit_match.found:
+        print(f"  Detection method: QUAD-ANCHOR (most reliable)")
+        print(f"      Using all 4 corners for exact bounds")
+    elif menu_match.found and close_match.found and insert_match.found:
+        print(f"  Detection method: TRIPLE-ANCHOR (top-left, top-right, bottom-left)")
+    elif close_match.found and deposit_match.found:
         dx = close_match.center_x - deposit_match.center_x
         dy = deposit_match.center_y - close_match.center_y
-        print(f"  Detection method: DUAL-ANCHOR (most reliable)")
+        print(f"  Detection method: DUAL-ANCHOR (close + deposit)")
         print(f"      Horizontal offset (dx): {dx}px")
         print(f"      Vertical span (dy): {dy}px")
-        print(f"      Calculated panel width: {int(dx * 2.2)}px")
+    elif menu_match.found and insert_match.found:
+        print(f"  Detection method: DUAL-ANCHOR (menu + insert, left side)")
     elif close_match.found:
         print(f"  Detection method: SINGLE-ANCHOR (close button, size-based scale)")
     elif deposit_match.found:
@@ -407,8 +443,14 @@ def main():
         cv2.rectangle(vis_img, (x, y), (x + width, y + height), (0, 255, 255), 3)
 
         # Add label with detection method info
-        if close_match.found and deposit_match.found:
+        if menu_match.found and close_match.found and insert_match.found and deposit_match.found:
+            method = "QUAD-ANCHOR"
+        elif menu_match.found and close_match.found and insert_match.found:
+            method = "triple-anchor"
+        elif close_match.found and deposit_match.found:
             method = "dual-anchor"
+        elif menu_match.found and insert_match.found:
+            method = "dual-left"
         elif close_match.found:
             method = "close-btn"
         else:
@@ -507,9 +549,110 @@ def main():
             2
         )
 
-    # If dual-anchor, draw the geometry lines showing triangulation
-    if close_match.found and deposit_match.found:
-        # Draw line connecting the two anchor points (WHITE)
+    # Draw menu button (top-left) - GREEN
+    if menu_match.found:
+        menu_color = (0, 255, 0)  # Green
+
+        cv2.rectangle(
+            vis_img,
+            (menu_match.x, menu_match.y),
+            (menu_match.x + menu_match.width, menu_match.y + menu_match.height),
+            menu_color,
+            3
+        )
+
+        cv2.circle(
+            vis_img,
+            (menu_match.center_x, menu_match.center_y),
+            8,
+            menu_color,
+            -1
+        )
+
+        cv2.putText(
+            vis_img,
+            "Menu (TL)",
+            (menu_match.x, menu_match.y - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            menu_color,
+            2
+        )
+
+    # Draw insert button (bottom-left) - ORANGE
+    if insert_match.found:
+        insert_color = (0, 165, 255)  # Orange
+
+        cv2.rectangle(
+            vis_img,
+            (insert_match.x, insert_match.y),
+            (insert_match.x + insert_match.width, insert_match.y + insert_match.height),
+            insert_color,
+            3
+        )
+
+        cv2.circle(
+            vis_img,
+            (insert_match.center_x, insert_match.center_y),
+            8,
+            insert_color,
+            -1
+        )
+
+        cv2.putText(
+            vis_img,
+            "Insert (BL)",
+            (insert_match.x, insert_match.y + insert_match.height + 20),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            insert_color,
+            2
+        )
+
+    # Draw geometry lines based on detection method
+    if menu_match.found and close_match.found and insert_match.found and deposit_match.found:
+        # QUAD-ANCHOR: Draw the full bounding box formed by all 4 anchors
+        line_color = (255, 255, 255)
+
+        # Top edge (menu to close)
+        cv2.line(vis_img,
+            (menu_match.center_x, menu_match.center_y),
+            (close_match.center_x, close_match.center_y),
+            line_color, 2)
+
+        # Right edge (close to deposit)
+        cv2.line(vis_img,
+            (close_match.center_x, close_match.center_y),
+            (deposit_match.center_x, deposit_match.center_y),
+            line_color, 2)
+
+        # Bottom edge (deposit to insert)
+        cv2.line(vis_img,
+            (deposit_match.center_x, deposit_match.center_y),
+            (insert_match.center_x, insert_match.center_y),
+            line_color, 2)
+
+        # Left edge (insert to menu)
+        cv2.line(vis_img,
+            (insert_match.center_x, insert_match.center_y),
+            (menu_match.center_x, menu_match.center_y),
+            line_color, 2)
+
+        # Add "QUAD-ANCHOR" label in center
+        center_x = (menu_match.center_x + close_match.center_x) // 2
+        center_y = (menu_match.center_y + insert_match.center_y) // 2
+        cv2.putText(
+            vis_img,
+            "QUAD-ANCHOR",
+            (center_x - 60, center_y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 0),
+            2
+        )
+
+    elif close_match.found and deposit_match.found:
+        # DUAL-ANCHOR: Original triangulation visualization
         cv2.line(
             vis_img,
             (close_match.center_x, close_match.center_y),
@@ -518,8 +661,6 @@ def main():
             2
         )
 
-        # Draw horizontal and vertical components (dashed effect with multiple lines)
-        # Horizontal line from deposit to directly below close
         cv2.line(
             vis_img,
             (deposit_match.center_x, deposit_match.center_y),
@@ -527,7 +668,6 @@ def main():
             (200, 200, 200),
             1
         )
-        # Vertical line from that point up to close
         cv2.line(
             vis_img,
             (close_match.center_x, deposit_match.center_y),
@@ -536,41 +676,17 @@ def main():
             1
         )
 
-        # Label the distances
         dx = close_match.center_x - deposit_match.center_x
         dy = deposit_match.center_y - close_match.center_y
         mid_x = (close_match.center_x + deposit_match.center_x) // 2
         mid_y = (close_match.center_y + deposit_match.center_y) // 2
 
-        cv2.putText(
-            vis_img,
-            f"dx={dx}",
-            (mid_x, deposit_match.center_y + 20),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (200, 200, 200),
-            1
-        )
-        cv2.putText(
-            vis_img,
-            f"dy={dy}",
-            (close_match.center_x + 10, mid_y),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (200, 200, 200),
-            1
-        )
-
-        # Add "DUAL-ANCHOR" label
-        cv2.putText(
-            vis_img,
-            "DUAL-ANCHOR DETECTION",
-            (mid_x - 80, mid_y - 20),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 255, 0),
-            2
-        )
+        cv2.putText(vis_img, f"dx={dx}", (mid_x, deposit_match.center_y + 20),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        cv2.putText(vis_img, f"dy={dy}", (close_match.center_x + 10, mid_y),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        cv2.putText(vis_img, "DUAL-ANCHOR", (mid_x - 50, mid_y - 20),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
     # Draw HYBRID detection result if we have any match (even if failed threshold)
     if best_hybrid_match:

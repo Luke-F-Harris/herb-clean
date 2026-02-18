@@ -103,4 +103,6 @@ bank:
   chest_template: bank_chest.png
   deposit_all_template: deposit_all.png
   close_button_template: bank_close.png
+  insert_button_template: bank_insert.png
+  menu_button_template: bank_menu.png
   esc_chance: 0.7

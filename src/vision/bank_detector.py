@@ -161,37 +161,73 @@ class BankDetector:
         return None
 
     def _get_bank_item_region(self, screen_image: np.ndarray) -> Optional[tuple[int, int, int, int]]:
-        """Detect bank item grid using dual-anchor triangulation.
+        """Detect bank item grid using quad-anchor triangulation.
 
-        Uses both close button (top-right) and deposit button (bottom-center)
-        to calculate the actual bank region without relying on unreliable
-        template matching scale factors.
+        Uses up to 4 anchor buttons to calculate the exact bank region:
+        - Top-left: Menu button
+        - Top-right: Close button
+        - Bottom-left: Insert button
+        - Bottom-center: Deposit button
 
         Returns:
             Tuple of (x, y, width, height) for bank item region, or None
         """
+        # Detect all anchor buttons
         close_match = self.matcher.match(
             screen_image, self.config.get("close_button_template", "bank_close.png")
         )
         deposit_match = self.matcher.match(
             screen_image, self.config.get("deposit_all_template", "deposit_all.png")
         )
+        insert_match = self.matcher.match(
+            screen_image, self.config.get("insert_button_template", "bank_insert.png")
+        )
+        menu_match = self.matcher.match(
+            screen_image, self.config.get("menu_button_template", "bank_menu.png")
+        )
 
-        # Method 1: Dual-anchor (most reliable)
+        # Method 1: Quad-anchor (most reliable)
+        # All 4 corners give us the exact bank panel bounds
+        if menu_match.found and close_match.found and insert_match.found and deposit_match.found:
+            # Top edge: just below menu/close buttons
+            top = max(menu_match.y + menu_match.height, close_match.y + close_match.height) + 5
+
+            # Bottom edge: just above insert/deposit buttons
+            bottom = min(insert_match.y, deposit_match.y) - 5
+
+            # Left edge: right of menu/insert buttons
+            left = max(menu_match.x + menu_match.width, insert_match.x + insert_match.width) + 5
+
+            # Right edge: left of close button
+            right = close_match.x - 5
+
+            return (
+                max(0, left),
+                max(0, top),
+                max(0, right - left),
+                max(0, bottom - top)
+            )
+
+        # Method 2: Triple-anchor with top-left, top-right, bottom-left
+        if menu_match.found and close_match.found and insert_match.found:
+            top = max(menu_match.y + menu_match.height, close_match.y + close_match.height) + 5
+            bottom = insert_match.y - 5
+            left = max(menu_match.x + menu_match.width, insert_match.x + insert_match.width) + 5
+            right = close_match.x - 5
+
+            return (
+                max(0, left),
+                max(0, top),
+                max(0, right - left),
+                max(0, bottom - top)
+            )
+
+        # Method 3: Dual-anchor with close and deposit (original method)
         if close_match.found and deposit_match.found:
-            # Close button is at top-right, deposit is at bottom-center
-            # The horizontal distance from deposit center to close center
-            # tells us half the panel width
             dx = close_match.center_x - deposit_match.center_x
             dy = deposit_match.center_y - close_match.center_y
 
-            # Panel width is roughly 2x the horizontal offset
-            panel_width = int(dx * 2.2)  # Close is slightly right of center
-
-            # Item grid is inset from panel edges
-            # Left edge = close_x - panel_width + small_margin
-            # Top edge = close_y + button_height
-            # Width/height = derived from dy (vertical span)
+            panel_width = int(dx * 2.2)
 
             item_grid_left = close_match.x - panel_width + 20
             item_grid_top = close_match.y + close_match.height + 10
@@ -205,11 +241,26 @@ class BankDetector:
                 min(item_grid_height, screen_image.shape[0] - item_grid_top)
             )
 
-        # Method 2: Single anchor fallback with FIXED offsets (no scale multiplication)
-        # Use the detected button SIZE as the scale indicator, not template scale
+        # Method 4: Dual-anchor with menu and insert (left side)
+        if menu_match.found and insert_match.found:
+            # We have left side anchors, estimate right side
+            left = max(menu_match.x + menu_match.width, insert_match.x + insert_match.width) + 5
+            top = menu_match.y + menu_match.height + 5
+            bottom = insert_match.y - 5
+
+            # Estimate width based on typical bank proportions
+            height = bottom - top
+            width = int(height * 1.1)  # Bank is slightly wider than tall
+
+            return (
+                max(0, left),
+                max(0, top),
+                width,
+                max(0, bottom - top)
+            )
+
+        # Method 5: Single anchor fallback with button-size-based scale
         if close_match.found:
-            # The close button size tells us the UI scale
-            # Standard close button is ~21x21 at 1080p
             button_scale = close_match.width / 21.0
 
             offset_x = int(510 * button_scale)
@@ -222,10 +273,7 @@ class BankDetector:
 
             return (x, y, bank_width, bank_height)
 
-        # Method 3: Deposit button only fallback
         if deposit_match.found:
-            # Use deposit button size as scale indicator
-            # Standard deposit button is ~35 pixels wide at 1080p
             button_scale = deposit_match.width / 35.0
 
             offset_x = int(240 * button_scale)
