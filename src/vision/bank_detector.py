@@ -277,11 +277,11 @@ class BankDetector:
 
         for template_name, color_similarity in color_candidates:
             # Use bottom-region matching for bank items (avoids stack numbers)
-            # Using 60% - balance between avoiding text and keeping enough template data
+            # Using 70% - balance between avoiding text and keeping enough template data
             match = self.matcher.match_bottom_region(
                 search_image,
                 template_name,
-                region_percentage=0.60  # Use bottom 60% of item to avoid stack text
+                region_percentage=0.70  # Use bottom 70% of item to avoid stack text
             )
 
             if match.found and match.confidence > best_confidence:

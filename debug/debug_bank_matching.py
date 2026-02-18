@@ -260,8 +260,8 @@ def main():
 
     for template_name, color_sim in color_candidates:
         herb_name = template_name.replace('grimy_', '').replace('.png', '')
-        # Using 60% region - balance between avoiding text and keeping template data
-        match = matcher.match_bottom_region(search_image, template_name, 0.60)
+        # Using 70% region - balance between avoiding text and keeping template data
+        match = matcher.match_bottom_region(search_image, template_name, 0.70)
 
         passed = "✓ PASS" if match.found else f"✗ FAIL (threshold: {matcher.confidence_threshold})"
         print(f"  {herb_name:15} - Confidence: {match.confidence:.3f} {passed}")
@@ -311,7 +311,7 @@ def main():
         # Test both methods on bank region (or full image if no region)
         try:
             standard_match = matcher.match(search_image, template_name)
-            region_match = matcher.match_bottom_region(search_image, template_name, 0.60)
+            region_match = matcher.match_bottom_region(search_image, template_name, 0.70)
 
             # Adjust coordinates for offset
             if standard_match.found:
@@ -492,7 +492,7 @@ def main():
         f"Gap: {matcher.confidence_threshold - best_hybrid_conf:.3f}",
         f"Result: {'PASS' if (best_hybrid_match and best_hybrid_match.found) else 'FAIL'}",
         f"Herb: {best_hybrid_name or 'None'}",
-        f"Crop: 60% (bottom region)",
+        f"Crop: 70% (bottom region)",
     ]
 
     # Add transparency info
@@ -569,8 +569,8 @@ def main():
     if best_hybrid_template:
         template_full = matcher.load_template(best_hybrid_template)
         if template_full is not None:
-            # Crop to bottom 60% (what we actually match)
-            crop_pct = 0.60
+            # Crop to bottom 70% (what we actually match)
+            crop_pct = 0.70
             t_h, t_w = template_full.shape[:2]
             crop_y = int(t_h * (1.0 - crop_pct))
             template_cropped = template_full[crop_y:, :]
@@ -615,7 +615,15 @@ def main():
 
     window_name = "Bank Herb Detection - Press any key to close"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.imshow(window_name, vis_img)
+
+    # Mouse position tracking
+    mouse_pos = {'x': 0, 'y': 0}
+
+    def mouse_callback(event, x, y, flags, param):
+        mouse_pos['x'] = x
+        mouse_pos['y'] = y
+
+    cv2.setMouseCallback(window_name, mouse_callback)
 
     # Try to bring window to front
     try:
@@ -627,7 +635,58 @@ def main():
     print("  (It may appear behind other windows)")
     print()
     print("Press any key in the IMAGE WINDOW to close...")
-    cv2.waitKey(0)
+
+    # Interactive loop with mouse coordinate display
+    while True:
+        # Create a copy to draw mouse coords on
+        display_img = vis_img.copy()
+
+        # Draw mouse coordinates in bottom-right corner
+        coord_text = f"X: {mouse_pos['x']}  Y: {mouse_pos['y']}"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.7
+        thickness = 2
+        (text_w, text_h), _ = cv2.getTextSize(coord_text, font, font_scale, thickness)
+
+        # Position bottom-right
+        padding = 10
+        box_x = img_w - text_w - padding * 3
+        box_y = img_h - text_h - padding * 3
+
+        # Draw background box
+        cv2.rectangle(
+            display_img,
+            (box_x - padding, box_y - padding),
+            (img_w - padding, img_h - padding),
+            (40, 40, 40),
+            -1
+        )
+        cv2.rectangle(
+            display_img,
+            (box_x - padding, box_y - padding),
+            (img_w - padding, img_h - padding),
+            (255, 255, 255),
+            1
+        )
+
+        # Draw text
+        cv2.putText(
+            display_img,
+            coord_text,
+            (box_x, img_h - padding * 2),
+            font,
+            font_scale,
+            (0, 255, 255),  # Cyan
+            thickness
+        )
+
+        cv2.imshow(window_name, display_img)
+
+        # Check for key press (wait 30ms)
+        key = cv2.waitKey(30)
+        if key != -1:
+            break
+
     cv2.destroyAllWindows()
 
     # Print diagnostic info if detection failed
