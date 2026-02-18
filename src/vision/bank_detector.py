@@ -14,10 +14,10 @@ class BankState:
     """Current state of bank interface."""
 
     is_open: bool = False
-    booth_location: Optional[tuple[int, int]] = None
-    deposit_button: Optional[tuple[int, int]] = None
-    close_button: Optional[tuple[int, int]] = None
-    grimy_herb_location: Optional[tuple[int, int]] = None
+    booth_location: Optional[MatchResult] = None
+    deposit_button: Optional[MatchResult] = None
+    close_button: Optional[MatchResult] = None
+    grimy_herb_location: Optional[MatchResult] = None
 
 
 class BankDetector:
@@ -86,11 +86,11 @@ class BankDetector:
         self._cached_state = state
         return state
 
-    def find_bank_booth(self) -> Optional[tuple[int, int]]:
+    def find_bank_booth(self) -> Optional[MatchResult]:
         """Find bank booth location in game view.
 
         Returns:
-            (x, y) screen coordinates of booth center, or None
+            MatchResult with position and dimensions, or None
         """
         screen_image = self.screen.capture_window()
         if screen_image is None:
@@ -102,9 +102,9 @@ class BankDetector:
         )
 
         if booth_match.found:
-            coords = self._to_screen_coords(booth_match)
-            self._cached_state.booth_location = coords
-            return coords
+            match_result = self._to_screen_coords(booth_match)
+            self._cached_state.booth_location = match_result
+            return match_result
 
         # Try chest template as alternative
         chest_match = self.matcher.match(
@@ -112,17 +112,17 @@ class BankDetector:
         )
 
         if chest_match.found:
-            coords = self._to_screen_coords(chest_match)
-            self._cached_state.booth_location = coords
-            return coords
+            match_result = self._to_screen_coords(chest_match)
+            self._cached_state.booth_location = match_result
+            return match_result
 
         return self._cached_state.booth_location
 
-    def find_deposit_button(self) -> Optional[tuple[int, int]]:
+    def find_deposit_button(self) -> Optional[MatchResult]:
         """Find deposit-all button.
 
         Returns:
-            (x, y) screen coordinates, or None
+            MatchResult with position and dimensions, or None
         """
         screen_image = self.screen.capture_window()
         if screen_image is None:
@@ -133,17 +133,17 @@ class BankDetector:
         )
 
         if match.found:
-            coords = self._to_screen_coords(match)
-            self._cached_state.deposit_button = coords
-            return coords
+            match_result = self._to_screen_coords(match)
+            self._cached_state.deposit_button = match_result
+            return match_result
 
         return None
 
-    def find_close_button(self) -> Optional[tuple[int, int]]:
+    def find_close_button(self) -> Optional[MatchResult]:
         """Find bank close button.
 
         Returns:
-            (x, y) screen coordinates, or None
+            MatchResult with position and dimensions, or None
         """
         screen_image = self.screen.capture_window()
         if screen_image is None:
@@ -154,17 +154,17 @@ class BankDetector:
         )
 
         if match.found:
-            coords = self._to_screen_coords(match)
-            self._cached_state.close_button = coords
-            return coords
+            match_result = self._to_screen_coords(match)
+            self._cached_state.close_button = match_result
+            return match_result
 
         return None
 
-    def find_grimy_herb_in_bank(self) -> Optional[tuple[int, int]]:
+    def find_grimy_herb_in_bank(self) -> Optional[MatchResult]:
         """Find grimy herb in bank interface.
 
         Returns:
-            (x, y) screen coordinates, or None
+            MatchResult with position and dimensions, or None
         """
         screen_image = self.screen.capture_window()
         if screen_image is None:
@@ -173,9 +173,9 @@ class BankDetector:
         for herb_config in self.grimy_templates:
             match = self.matcher.match(screen_image, herb_config["template"])
             if match.found:
-                coords = self._to_screen_coords(match)
-                self._cached_state.grimy_herb_location = coords
-                return coords
+                match_result = self._to_screen_coords(match)
+                self._cached_state.grimy_herb_location = match_result
+                return match_result
 
         return None
 
@@ -183,9 +183,22 @@ class BankDetector:
         """Check if bank interface is currently open."""
         return self.detect_bank_state().is_open
 
-    def _to_screen_coords(self, match: MatchResult) -> tuple[int, int]:
-        """Convert match result to absolute screen coordinates."""
+    def _to_screen_coords(self, match: MatchResult) -> MatchResult:
+        """Convert match result to absolute screen coordinates.
+
+        Modifies the MatchResult in-place to convert window-relative
+        coordinates to absolute screen coordinates.
+
+        Args:
+            match: MatchResult with window-relative coordinates
+
+        Returns:
+            Same MatchResult with screen-absolute coordinates
+        """
         bounds = self.screen.window_bounds
         if bounds:
-            return (bounds.x + match.center_x, bounds.y + match.center_y)
-        return (match.center_x, match.center_y)
+            match.x += bounds.x
+            match.y += bounds.y
+            match.center_x += bounds.x
+            match.center_y += bounds.y
+        return match

@@ -274,18 +274,18 @@ class BotController:
         self._logger.debug("Opening bank...")
 
         # Find bank booth
-        booth_pos = self.bank.find_bank_booth()
-        if not booth_pos:
+        booth_match = self.bank.find_bank_booth()
+        if not booth_match or not booth_match.found:
             self._logger.warning("Could not find bank booth")
             time.sleep(1)
             return
 
-        # Click bank booth
+        # Click bank booth with actual template dimensions
         target = ClickTarget(
-            center_x=booth_pos[0],
-            center_y=booth_pos[1],
-            width=40,
-            height=40,
+            center_x=booth_match.center_x,
+            center_y=booth_match.center_y,
+            width=booth_match.width,
+            height=booth_match.height,
         )
 
         completed, _ = self.mouse.click_at_target(
@@ -318,18 +318,17 @@ class BotController:
         self._logger.debug("Depositing herbs...")
 
         # Find deposit button
-        deposit_pos = self.bank.find_deposit_button()
-        if not deposit_pos:
+        deposit_match = self.bank.find_deposit_button()
+        if not deposit_match or not deposit_match.found:
             self._logger.warning("Could not find deposit button")
-            # Try clicking deposit all anyway at expected position
             return
 
-        # Click deposit
+        # Click deposit with actual template dimensions
         target = ClickTarget(
-            center_x=deposit_pos[0],
-            center_y=deposit_pos[1],
-            width=30,
-            height=30,
+            center_x=deposit_match.center_x,
+            center_y=deposit_match.center_y,
+            width=deposit_match.width,
+            height=deposit_match.height,
         )
 
         completed, _ = self.mouse.click_at_target(
@@ -346,19 +345,19 @@ class BotController:
         self._logger.debug("Withdrawing grimy herbs...")
 
         # Find grimy herbs in bank
-        herb_pos = self.bank.find_grimy_herb_in_bank()
-        if not herb_pos:
+        herb_match = self.bank.find_grimy_herb_in_bank()
+        if not herb_match or not herb_match.found:
             self._logger.warning("Could not find grimy herbs in bank")
             # End session if no herbs
             self._is_running = False
             return
 
-        # Click grimy herbs (withdraw all)
+        # Click grimy herbs with actual template dimensions
         target = ClickTarget(
-            center_x=herb_pos[0],
-            center_y=herb_pos[1],
-            width=36,
-            height=32,
+            center_x=herb_match.center_x,
+            center_y=herb_match.center_y,
+            width=herb_match.width,
+            height=herb_match.height,
         )
 
         completed, _ = self.mouse.click_at_target(
@@ -390,14 +389,14 @@ class BotController:
         else:
             # Click close button (30% default)
             self._logger.debug("Closing bank by clicking X")
-            close_pos = self.bank.find_close_button()
+            close_match = self.bank.find_close_button()
 
-            if close_pos:
+            if close_match and close_match.found:
                 target = ClickTarget(
-                    center_x=close_pos[0],
-                    center_y=close_pos[1],
-                    width=20,
-                    height=20,
+                    center_x=close_match.center_x,
+                    center_y=close_match.center_y,
+                    width=close_match.width,
+                    height=close_match.height,
                 )
                 self.mouse.click_at_target(
                     target,
