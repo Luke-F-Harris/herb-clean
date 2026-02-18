@@ -222,27 +222,41 @@ def main():
     print()
     print("Step 2: Template Matching on Filtered Candidates")
     print("-" * 70)
+    print(f"Confidence threshold: {matcher.confidence_threshold}")
+    print()
 
     # Now run template matching on the filtered candidates
     best_hybrid_match = None
     best_hybrid_conf = 0.0
     best_hybrid_name = None
+    best_hybrid_template = None
 
     for template_name, color_sim in color_candidates:
         herb_name = template_name.replace('grimy_', '').replace('.png', '')
         match = matcher.match_bottom_region(search_image, template_name, 0.65)
 
-        print(f"  {herb_name:15} - Template conf: {match.confidence:.3f} {'✓' if match.found else '✗'}")
+        passed = "✓ PASS" if match.found else f"✗ FAIL (threshold: {matcher.confidence_threshold})"
+        print(f"  {herb_name:15} - Confidence: {match.confidence:.3f} {passed}")
 
-        if match.found and match.confidence > best_hybrid_conf:
+        # Keep track of best match even if it didn't pass threshold
+        if match.confidence > best_hybrid_conf:
             best_hybrid_conf = match.confidence
             best_hybrid_match = match
             best_hybrid_name = herb_name
+            best_hybrid_template = template_name
 
     print()
-    if best_hybrid_match:
-        print(f"✓ HYBRID RESULT: {best_hybrid_name} (confidence: {best_hybrid_conf:.3f})")
+    if best_hybrid_match and best_hybrid_match.found:
+        print(f"✓ HYBRID RESULT (PASSED): {best_hybrid_name} (confidence: {best_hybrid_conf:.3f})")
         # Adjust coords for offset
+        best_hybrid_match.x += offset_x
+        best_hybrid_match.y += offset_y
+        best_hybrid_match.center_x += offset_x
+        best_hybrid_match.center_y += offset_y
+    elif best_hybrid_match:
+        print(f"⚠ BEST MATCH (FAILED THRESHOLD): {best_hybrid_name} (confidence: {best_hybrid_conf:.3f})")
+        print(f"  Threshold: {matcher.confidence_threshold}, needed {matcher.confidence_threshold - best_hybrid_conf:.3f} more")
+        # Still adjust coords for visualization
         best_hybrid_match.x += offset_x
         best_hybrid_match.y += offset_y
         best_hybrid_match.center_x += offset_x
@@ -336,100 +350,130 @@ def main():
 
     print()
 
-    # Visualize HYBRID detection result
+    # Visualize HYBRID detection result - ALWAYS show window
     print("=" * 70)
     print("VISUALIZATION")
     print("=" * 70)
 
+    vis_img = window_img.copy()
+
+    # ALWAYS draw bank region rectangle if detected (YELLOW)
+    if bank_region:
+        x, y, width, height = bank_region
+        cv2.rectangle(vis_img, (x, y), (x + width, y + height), (0, 255, 255), 3)
+
+        # Add label with scale info
+        if close_match.found:
+            label = f"Bank Search Area (scale: {close_match.scale:.2f}x, {width}x{height})"
+        else:
+            label = f"Bank Search Area ({width}x{height})"
+
+        cv2.putText(
+            vis_img,
+            label,
+            (x + 10, y + 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 255, 255),
+            2
+        )
+    else:
+        # Draw warning if bank region not detected
+        cv2.putText(
+            vis_img,
+            "WARNING: Bank region not detected!",
+            (50, 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.0,
+            (0, 0, 255),
+            2
+        )
+
+    # Draw HYBRID detection result if we have any match (even if failed threshold)
     if best_hybrid_match:
-        vis_img = window_img.copy()
-
-        # Draw bank region rectangle if detected (YELLOW)
-        if bank_region:
-            x, y, width, height = bank_region
-            cv2.rectangle(vis_img, (x, y), (x + width, y + height), (0, 255, 255), 3)
-
-            # Add label with scale info
-            if close_match.found:
-                label = f"Bank Search Area (scale: {close_match.scale:.2f}x)"
-            else:
-                label = "Bank Search Area"
-
-            cv2.putText(
-                vis_img,
-                label,
-                (x + 10, y + 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 255, 255),
-                2
-            )
-
-        # Draw HYBRID detection result (GREEN)
         match_x = best_hybrid_match.center_x
         match_y = best_hybrid_match.center_y
         w = best_hybrid_match.width
         h = best_hybrid_match.height
 
+        # Color: GREEN if passed, RED if failed threshold
+        color = (0, 255, 0) if best_hybrid_match.found else (0, 0, 255)
+        status = "PASS" if best_hybrid_match.found else "FAIL"
+
         cv2.rectangle(
             vis_img,
             (match_x - w // 2, match_y - h // 2),
             (match_x + w // 2, match_y + h // 2),
-            (0, 255, 0),
+            color,
             3
         )
 
         # Add label
-        label = f"HYBRID: {best_hybrid_name}: {best_hybrid_conf:.3f}"
+        label = f"HYBRID {status}: {best_hybrid_name}: {best_hybrid_conf:.3f}"
         cv2.putText(
             vis_img,
             label,
             (match_x - w // 2, match_y - h // 2 - 10),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
-            (0, 255, 0),
+            color,
             2
         )
 
-        # Show visualization window
-        print()
-        print("Opening visualization window...")
-        print()
-        print("LEGEND:")
-        print("  - YELLOW box = Bank search area (scale-aware!)")
-        print("  - GREEN box = Hybrid detection result")
-        print("  - Label shows: detection method, herb name, confidence")
-        print()
+    # ALWAYS show visualization window
+    print()
+    print("Opening visualization window...")
+    print()
+    print("LEGEND:")
+    print("  - YELLOW box = Bank search area (scale-aware!)")
+    if best_hybrid_match:
+        if best_hybrid_match.found:
+            print("  - GREEN box = Hybrid detection (PASSED threshold)")
+        else:
+            print("  - RED box = Best match (FAILED threshold)")
+    print()
 
-        window_name = "Bank Herb Detection - Press any key to close"
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.imshow(window_name, vis_img)
+    window_name = "Bank Herb Detection - Press any key to close"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.imshow(window_name, vis_img)
 
-        # Try to bring window to front
-        try:
-            cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
-        except:
-            pass  # Not all platforms support this
+    # Try to bring window to front
+    try:
+        cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
+    except:
+        pass  # Not all platforms support this
 
-        print("✓ Window opened! Look for the image window.")
-        print("  (It may appear behind other windows)")
+    print("✓ Window opened! Look for the image window.")
+    print("  (It may appear behind other windows)")
+    print()
+    print("Press any key in the IMAGE WINDOW to close...")
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    # Print diagnostic info if detection failed
+    if not best_hybrid_match or not best_hybrid_match.found:
         print()
-        print("Press any key in the IMAGE WINDOW to close...")
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-    else:
-        print("⚠ No hybrid match found - skipping visualization")
+        print("=" * 70)
+        print("DIAGNOSTIC INFO")
+        print("=" * 70)
         print()
-        if not best['region_found']:
-            print("Possible issues:")
-            print("  - Wrong herb type in bank (not matching templates)")
-            print("  - Templates captured at different zoom level")
-            print("  - Bank region detection failed")
-            print()
-            print("Solutions:")
-            print("  1. Ensure you have the right herb type in bank")
-            print("  2. Recapture templates at your current zoom level")
-            print("  3. Check that bank close/deposit button is visible")
+        print("Possible issues:")
+        print("  1. Confidence threshold too high")
+        print(f"     Current: {matcher.confidence_threshold}")
+        print(f"     Best score: {best_hybrid_conf:.3f}")
+        print(f"     Gap: {matcher.confidence_threshold - best_hybrid_conf:.3f}")
+        print()
+        print("  2. Wrong herb type in bank")
+        print("     Make sure the herb in your bank matches one of the templates")
+        print()
+        print("  3. Template quality issues")
+        print("     Templates may be from different zoom level or quality")
+        print()
+        print("Solutions:")
+        print("  - Lower confidence_threshold in config/default_config.yaml")
+        print("  - Recapture templates at your current zoom level")
+        print("  - Ensure correct herb type is in bank")
+        print()
 
     print()
     print("=" * 70)
