@@ -421,10 +421,14 @@ def main():
         config.get('bank', {}).get('close_button_template', 'bank_close.png')
     )
 
-    # Look for grimy herbs in bank
+    # Look for grimy herbs in bank (use region-based matching to avoid stack numbers)
     herb_match = None
     for herb_config in config.get('herbs', {}).get('grimy', []):
-        herb_match = matcher.match(window_img, herb_config['template'])
+        herb_match = matcher.match_bottom_region(
+            window_img,
+            herb_config['template'],
+            region_percentage=0.65  # Use bottom 65% to avoid stack numbers
+        )
         if herb_match.found:
             break
 
@@ -601,7 +605,11 @@ def main():
     )
     herb_match_final = None
     for herb_config in config.get('herbs', {}).get('grimy', []):
-        herb_match_final = matcher.match(window_img, herb_config['template'])
+        herb_match_final = matcher.match_bottom_region(
+            window_img,
+            herb_config['template'],
+            region_percentage=0.65  # Use bottom 65% to avoid stack numbers
+        )
         if herb_match_final.found:
             break
 
