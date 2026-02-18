@@ -66,7 +66,7 @@ attention:
   - name: random
     weight: 1
 vision:
-  confidence_threshold: 0.75
+  confidence_threshold: 0.70
   multi_scale: true
   scale_range:
   - 0.9

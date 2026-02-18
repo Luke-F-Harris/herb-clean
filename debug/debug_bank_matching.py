@@ -123,6 +123,22 @@ def main():
     print("✓ Template matcher initialized")
     print(f"  Using scale range: {config['vision']['scale_range']}")
     print(f"  Using {config['vision']['scale_steps']} scale steps")
+    print(f"  Confidence threshold: {config['vision']['confidence_threshold']}")
+
+    # Check template transparency handling
+    print()
+    print("Checking template transparency handling...")
+    test_template = config['herbs']['grimy'][0]['template']
+    _ = matcher.load_template(test_template)
+    mask = matcher.get_template_mask(test_template)
+    if mask is not None:
+        mask_pixels = np.count_nonzero(mask)
+        total_pixels = mask.shape[0] * mask.shape[1]
+        print(f"✓ Templates have alpha channel (transparency detected)")
+        print(f"  {test_template}: {mask_pixels}/{total_pixels} opaque pixels ({100*mask_pixels/total_pixels:.1f}%)")
+    else:
+        print("⚠ Templates have no alpha channel (no transparency)")
+        print("  Templates will be matched without transparency masking")
 
     # Initialize BankDetector (uses the improved scale-aware detection)
     bank_detector = BankDetector(
@@ -233,7 +249,8 @@ def main():
 
     for template_name, color_sim in color_candidates:
         herb_name = template_name.replace('grimy_', '').replace('.png', '')
-        match = matcher.match_bottom_region(search_image, template_name, 0.65)
+        # Using 50% region to avoid 4-digit stack numbers
+        match = matcher.match_bottom_region(search_image, template_name, 0.50)
 
         passed = "✓ PASS" if match.found else f"✗ FAIL (threshold: {matcher.confidence_threshold})"
         print(f"  {herb_name:15} - Confidence: {match.confidence:.3f} {passed}")
@@ -283,7 +300,7 @@ def main():
         # Test both methods on bank region (or full image if no region)
         try:
             standard_match = matcher.match(search_image, template_name)
-            region_match = matcher.match_bottom_region(search_image, template_name, 0.65)
+            region_match = matcher.match_bottom_region(search_image, template_name, 0.50)
 
             # Adjust coordinates for offset
             if standard_match.found:

@@ -26,6 +26,9 @@ class MatchResult:
 class TemplateMatcher:
     """Multi-scale template matching using OpenCV."""
 
+    # OSRS bank background color (BGR) - tan/brown color
+    BANK_BG_COLOR = (73, 97, 117)  # Approximate bank slot background
+
     def __init__(
         self,
         templates_dir: Path,
@@ -49,6 +52,7 @@ class TemplateMatcher:
         self.scale_range = scale_range
         self.scale_steps = scale_steps
         self._template_cache: dict[str, np.ndarray] = {}
+        self._template_mask_cache: dict[str, Optional[np.ndarray]] = {}
         self._histogram_cache: dict[str, np.ndarray] = {}
 
     def load_template(self, template_name: str) -> Optional[np.ndarray]:
@@ -67,17 +71,57 @@ class TemplateMatcher:
         if not template_path.exists():
             return None
 
-        template = cv2.imread(str(template_path), cv2.IMREAD_COLOR)
-        if template is not None:
-            self._template_cache[template_name] = template
+        # Load with alpha channel to handle transparency
+        template_rgba = cv2.imread(str(template_path), cv2.IMREAD_UNCHANGED)
+        if template_rgba is None:
+            return None
 
+        # Check if image has alpha channel
+        if template_rgba.shape[2] == 4:
+            # Extract alpha channel for mask
+            alpha = template_rgba[:, :, 3]
+            # Create mask where alpha > 0 (non-transparent pixels)
+            mask = (alpha > 127).astype(np.uint8) * 255
+            self._template_mask_cache[template_name] = mask
+
+            # Composite onto bank background color for better matching
+            template_bgr = template_rgba[:, :, :3].copy()
+            # Where alpha is low (transparent), replace with bank background
+            alpha_normalized = alpha.astype(np.float32) / 255.0
+            for c in range(3):
+                template_bgr[:, :, c] = (
+                    template_bgr[:, :, c] * alpha_normalized +
+                    self.BANK_BG_COLOR[c] * (1 - alpha_normalized)
+                ).astype(np.uint8)
+            template = template_bgr
+        else:
+            # No alpha channel, use as-is
+            template = template_rgba[:, :, :3] if template_rgba.shape[2] >= 3 else template_rgba
+            self._template_mask_cache[template_name] = None
+
+        self._template_cache[template_name] = template
         return template
+
+    def get_template_mask(self, template_name: str) -> Optional[np.ndarray]:
+        """Get the alpha mask for a template.
+
+        Args:
+            template_name: Template filename
+
+        Returns:
+            Grayscale mask or None if no mask exists
+        """
+        # Ensure template is loaded (which also loads mask)
+        if template_name not in self._template_mask_cache:
+            self.load_template(template_name)
+        return self._template_mask_cache.get(template_name)
 
     def match(
         self,
         image: np.ndarray,
         template_name: str,
         method: int = cv2.TM_CCOEFF_NORMED,
+        use_mask: bool = False,
     ) -> MatchResult:
         """Find template in image.
 
@@ -85,6 +129,7 @@ class TemplateMatcher:
             image: BGR image to search in
             template_name: Template filename to search for
             method: OpenCV template matching method
+            use_mask: Whether to use alpha mask for matching (for transparent templates)
 
         Returns:
             MatchResult with match details
@@ -102,13 +147,19 @@ class TemplateMatcher:
                 center_y=0,
             )
 
+        mask = self.get_template_mask(template_name) if use_mask else None
+
         if self.multi_scale:
-            return self._match_multi_scale(image, template, method)
+            return self._match_multi_scale(image, template, method, mask)
         else:
-            return self._match_single_scale(image, template, method)
+            return self._match_single_scale(image, template, method, mask)
 
     def _match_single_scale(
-        self, image: np.ndarray, template: np.ndarray, method: int
+        self,
+        image: np.ndarray,
+        template: np.ndarray,
+        method: int,
+        mask: Optional[np.ndarray] = None,
     ) -> MatchResult:
         """Single-scale template matching."""
         h, w = template.shape[:2]
@@ -126,7 +177,13 @@ class TemplateMatcher:
                 center_y=0,
             )
 
-        result = cv2.matchTemplate(image, template, method)
+        # Use mask-based matching if mask provided
+        # Note: mask only works with TM_SQDIFF and TM_CCORR_NORMED
+        if mask is not None and method in [cv2.TM_SQDIFF, cv2.TM_CCORR_NORMED]:
+            result = cv2.matchTemplate(image, template, method, mask=mask)
+        else:
+            result = cv2.matchTemplate(image, template, method)
+
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
         # For TM_SQDIFF methods, minimum is best match
@@ -151,7 +208,11 @@ class TemplateMatcher:
         )
 
     def _match_multi_scale(
-        self, image: np.ndarray, template: np.ndarray, method: int
+        self,
+        image: np.ndarray,
+        template: np.ndarray,
+        method: int,
+        mask: Optional[np.ndarray] = None,
     ) -> MatchResult:
         """Multi-scale template matching for different resolutions."""
         best_result = MatchResult(
@@ -182,7 +243,17 @@ class TemplateMatcher:
 
             scaled_template = cv2.resize(template, (new_w, new_h))
 
-            result = cv2.matchTemplate(image, scaled_template, method)
+            # Scale mask if provided
+            scaled_mask = None
+            if mask is not None:
+                scaled_mask = cv2.resize(mask, (new_w, new_h))
+
+            # Use mask-based matching if available
+            if scaled_mask is not None and method in [cv2.TM_SQDIFF, cv2.TM_CCORR_NORMED]:
+                result = cv2.matchTemplate(image, scaled_template, method, mask=scaled_mask)
+            else:
+                result = cv2.matchTemplate(image, scaled_template, method)
+
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
             if method in [cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED]:
@@ -228,7 +299,7 @@ class TemplateMatcher:
         self,
         image: np.ndarray,
         template_name: str,
-        region_percentage: float = 0.65,
+        region_percentage: float = 0.50,  # Reduced from 0.65 to avoid 4-digit stack numbers
         method: int = cv2.TM_CCOEFF_NORMED,
     ) -> MatchResult:
         """Match template using only bottom portion of image/template.
@@ -239,7 +310,7 @@ class TemplateMatcher:
         Args:
             image: BGR image to search in
             template_name: Template filename to search for
-            region_percentage: Percentage of height to use (0.0-1.0)
+            region_percentage: Percentage of height to use (0.0-1.0), default 0.50
             method: OpenCV template matching method
 
         Returns:
@@ -266,16 +337,22 @@ class TemplateMatcher:
             template, region_percentage
         )
 
+        # Also crop mask if it exists
+        mask = self.get_template_mask(template_name)
+        cropped_mask = None
+        if mask is not None:
+            cropped_mask, _ = self._crop_to_bottom_region(mask, region_percentage)
+
         # Perform matching based on mode
         if self.multi_scale:
             result = self._match_multi_scale_cropped(
                 image, cropped_template, template_offset_y,
-                orig_template_w, orig_template_h, method
+                orig_template_w, orig_template_h, method, cropped_mask
             )
         else:
             result = self._match_single_scale_cropped(
                 image, cropped_template, template_offset_y,
-                orig_template_w, orig_template_h, method
+                orig_template_w, orig_template_h, method, cropped_mask
             )
 
         return result
@@ -288,6 +365,7 @@ class TemplateMatcher:
         orig_width: int,
         orig_height: int,
         method: int,
+        mask: Optional[np.ndarray] = None,
     ) -> MatchResult:
         """Single-scale matching with cropped template."""
         h, w = cropped_template.shape[:2]
@@ -305,7 +383,12 @@ class TemplateMatcher:
                 center_y=0,
             )
 
-        result = cv2.matchTemplate(image, cropped_template, method)
+        # Use mask-based matching if mask provided
+        if mask is not None and method in [cv2.TM_SQDIFF, cv2.TM_CCORR_NORMED]:
+            result = cv2.matchTemplate(image, cropped_template, method, mask=mask)
+        else:
+            result = cv2.matchTemplate(image, cropped_template, method)
+
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
         # For TM_SQDIFF methods, minimum is best match
@@ -341,6 +424,7 @@ class TemplateMatcher:
         orig_width: int,
         orig_height: int,
         method: int,
+        mask: Optional[np.ndarray] = None,
     ) -> MatchResult:
         """Multi-scale matching with cropped template."""
         best_result = MatchResult(
@@ -371,7 +455,17 @@ class TemplateMatcher:
 
             scaled_template = cv2.resize(cropped_template, (new_w, new_h))
 
-            result = cv2.matchTemplate(image, scaled_template, method)
+            # Scale mask if provided
+            scaled_mask = None
+            if mask is not None:
+                scaled_mask = cv2.resize(mask, (new_w, new_h))
+
+            # Use mask-based matching if available
+            if scaled_mask is not None and method in [cv2.TM_SQDIFF, cv2.TM_CCORR_NORMED]:
+                result = cv2.matchTemplate(image, scaled_template, method, mask=scaled_mask)
+            else:
+                result = cv2.matchTemplate(image, scaled_template, method)
+
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
             if method in [cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED]:
@@ -557,6 +651,7 @@ class TemplateMatcher:
         return similarities[:top_k]
 
     def clear_cache(self) -> None:
-        """Clear the template and histogram caches."""
+        """Clear the template, mask, and histogram caches."""
         self._template_cache.clear()
+        self._template_mask_cache.clear()
         self._histogram_cache.clear()
