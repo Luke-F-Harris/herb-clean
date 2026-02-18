@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Session data
+session_*.json
+
+# Template images (user should capture their own)
+config/templates/*.png
+config/templates/*.jpg
+
+# Keep the .gitkeep file
+!config/templates/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db

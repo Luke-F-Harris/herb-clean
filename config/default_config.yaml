@@ -1,0 +1,121 @@
+# OSRS Herb Cleaning Bot Configuration
+# =====================================
+
+# Window settings
+window:
+  title: "RuneLite"
+  # Inventory position relative to window (adjust for your setup)
+  inventory:
+    x: 563
+    y: 208
+    slot_width: 42
+    slot_height: 36
+    cols: 4
+    rows: 7
+
+# Timing settings (milliseconds)
+timing:
+  # Herb cleaning delays
+  click_herb_mean: 600
+  click_herb_std: 150
+  click_herb_min: 350
+  click_herb_max: 1200
+
+  # Bank interaction delays
+  bank_action_mean: 800
+  bank_action_std: 200
+  bank_action_min: 500
+  bank_action_max: 1500
+
+  # Post-action delays
+  after_bank_open: 400
+  after_deposit: 300
+  after_withdraw: 300
+  after_bank_close: 200
+
+# Mouse movement settings
+mouse:
+  speed_range: [200, 400]  # pixels per second
+  overshoot_chance: 0.30
+  overshoot_distance: [5, 15]  # pixels
+  curve_variance: 0.3  # control point variance
+
+# Click settings
+click:
+  # Gaussian distribution for position within target
+  position_sigma_ratio: 6  # sigma = width / this value
+  # Click duration (gamma distribution)
+  duration_mean: 100  # ms
+  duration_min: 50
+  duration_max: 200
+
+# Break settings (seconds)
+breaks:
+  micro:
+    interval: [480, 900]  # 8-15 minutes
+    duration: [2, 10]
+  long:
+    interval: [2700, 5400]  # 45-90 minutes
+    duration: [60, 300]  # 1-5 minutes
+
+# Fatigue simulation
+fatigue:
+  onset_minutes: 30
+  max_slowdown_percent: 50
+  misclick_rate_start: 0.01
+  misclick_rate_max: 0.05
+
+# Attention drift
+attention:
+  drift_chance: 0.03  # 3% per action
+  drift_targets:
+    - name: "minimap"
+      weight: 3
+    - name: "chat"
+      weight: 2
+    - name: "random"
+      weight: 1
+
+# Template matching
+vision:
+  confidence_threshold: 0.80
+  multi_scale: true
+  scale_range: [0.8, 1.2]
+  scale_steps: 5
+
+# Safety settings
+safety:
+  emergency_stop_key: "f12"
+  max_session_hours: 4
+  stats_log_interval: 60  # seconds
+
+# Herb types (add templates as needed)
+herbs:
+  grimy:
+    - name: "grimy_ranarr"
+      template: "grimy_ranarr.png"
+    - name: "grimy_toadflax"
+      template: "grimy_toadflax.png"
+    - name: "grimy_irit"
+      template: "grimy_irit.png"
+    - name: "grimy_avantoe"
+      template: "grimy_avantoe.png"
+    - name: "grimy_kwuarm"
+      template: "grimy_kwuarm.png"
+    - name: "grimy_snapdragon"
+      template: "grimy_snapdragon.png"
+    - name: "grimy_cadantine"
+      template: "grimy_cadantine.png"
+    - name: "grimy_lantadyme"
+      template: "grimy_lantadyme.png"
+    - name: "grimy_dwarf_weed"
+      template: "grimy_dwarf_weed.png"
+    - name: "grimy_torstol"
+      template: "grimy_torstol.png"
+
+# Bank detection
+bank:
+  booth_template: "bank_booth.png"
+  chest_template: "bank_chest.png"
+  deposit_all_template: "deposit_all.png"
+  close_button_template: "bank_close.png"

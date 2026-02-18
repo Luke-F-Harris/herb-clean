@@ -1,0 +1,10 @@
+# Template images for herb cleaning bot
+#
+# Required templates:
+# - bank_booth.png       - Screenshot of bank booth/chest
+# - deposit_all.png      - Deposit inventory button
+# - bank_close.png       - Bank close button (X)
+# - grimy_ranarr.png     - Grimy herb you want to clean
+#
+# Capture these from RuneLite with GPU plugin at your normal resolution.
+# Crop tightly around each element.
