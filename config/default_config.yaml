@@ -10,10 +10,10 @@ window:
     cols: 4
     rows: 7
 timing:
-  click_herb_mean: 250
-  click_herb_std: 75
-  click_herb_min: 150
-  click_herb_max: 500
+  click_herb_mean: 100
+  click_herb_std: 30
+  click_herb_min: 60
+  click_herb_max: 200
   bank_action_mean: 800
   bank_action_std: 200
   bank_action_min: 500
