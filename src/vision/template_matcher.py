@@ -6,6 +6,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
+from PIL import Image
 
 
 @dataclass
@@ -58,6 +59,9 @@ class TemplateMatcher:
     def load_template(self, template_name: str) -> Optional[np.ndarray]:
         """Load a template image.
 
+        Uses PIL for loading to properly handle palette-based PNGs with
+        indexed transparency, which OpenCV's imread doesn't handle correctly.
+
         Args:
             template_name: Template filename
 
@@ -71,36 +75,37 @@ class TemplateMatcher:
         if not template_path.exists():
             return None
 
-        # Load with alpha channel to handle transparency
-        template_rgba = cv2.imread(str(template_path), cv2.IMREAD_UNCHANGED)
-        if template_rgba is None:
+        try:
+            # Use PIL to load - handles palette PNGs with transparency correctly
+            pil_image = Image.open(template_path)
+
+            # Convert to RGBA to get proper alpha channel regardless of source format
+            pil_rgba = pil_image.convert("RGBA")
+            # Convert to numpy array (RGBA format)
+            template_rgba = np.array(pil_rgba)
+            # Convert from RGBA to BGRA (OpenCV format)
+            template_bgra = cv2.cvtColor(template_rgba, cv2.COLOR_RGBA2BGRA)
+        except Exception:
             return None
 
-        # Check if image has alpha channel
-        if template_rgba.shape[2] == 4:
-            # Extract alpha channel for mask
-            alpha = template_rgba[:, :, 3]
-            # Create mask where alpha > 0 (non-transparent pixels)
-            mask = (alpha > 127).astype(np.uint8) * 255
-            self._template_mask_cache[template_name] = mask
+        # Extract alpha channel for mask
+        alpha = template_bgra[:, :, 3]
+        # Create mask where alpha > 0 (non-transparent pixels)
+        mask = (alpha > 127).astype(np.uint8) * 255
+        self._template_mask_cache[template_name] = mask
 
-            # Composite onto bank background color for better matching
-            template_bgr = template_rgba[:, :, :3].copy()
-            # Where alpha is low (transparent), replace with bank background
-            alpha_normalized = alpha.astype(np.float32) / 255.0
-            for c in range(3):
-                template_bgr[:, :, c] = (
-                    template_bgr[:, :, c] * alpha_normalized +
-                    self.BANK_BG_COLOR[c] * (1 - alpha_normalized)
-                ).astype(np.uint8)
-            template = template_bgr
-        else:
-            # No alpha channel, use as-is
-            template = template_rgba[:, :, :3] if template_rgba.shape[2] >= 3 else template_rgba
-            self._template_mask_cache[template_name] = None
+        # Composite onto bank background color for better matching
+        template_bgr = template_bgra[:, :, :3].copy()
+        # Where alpha is low (transparent), replace with bank background
+        alpha_normalized = alpha.astype(np.float32) / 255.0
+        for c in range(3):
+            template_bgr[:, :, c] = (
+                template_bgr[:, :, c] * alpha_normalized +
+                self.BANK_BG_COLOR[c] * (1 - alpha_normalized)
+            ).astype(np.uint8)
 
-        self._template_cache[template_name] = template
-        return template
+        self._template_cache[template_name] = template_bgr
+        return template_bgr
 
     def get_template_mask(self, template_name: str) -> Optional[np.ndarray]:
         """Get the alpha mask for a template.
