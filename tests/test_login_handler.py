@@ -74,36 +74,52 @@ class LoginHandlerTest:
         self._login_attempts = 0
         self._last_logout_time: Optional[float] = None
 
-    def detect_login_state(self) -> LoginState:
+    def detect_login_state(self, save_debug: bool = False) -> LoginState:
         """Detect current login state by checking for UI elements."""
         screen_image = self._screen.capture_window()
         if screen_image is None:
+            self._logger.warning("Could not capture screen!")
             return LoginState.UNKNOWN
+
+        # Optionally save screenshot for debugging
+        if save_debug:
+            import cv2
+            debug_path = project_root / "tests" / "debug_output" / "login_state_screen.png"
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(debug_path), screen_image)
+            self._logger.info("Saved debug screenshot to: %s", debug_path)
 
         # Check for inactivity logout dialog (OK button visible)
         ok_match = self._template_matcher.match(
             screen_image, self.config.ok_button_template
         )
+        self._logger.debug("OK button match: found=%s, confidence=%.3f",
+                          ok_match.found, ok_match.confidence)
         if ok_match.found:
-            self._logger.debug("Detected: Inactivity logout dialog")
+            self._logger.info("Detected: Inactivity logout dialog (conf=%.3f)", ok_match.confidence)
             return LoginState.INACTIVITY_LOGOUT
 
         # Check for Play Now screen
         play_now_match = self._template_matcher.match(
             screen_image, self.config.play_now_template
         )
+        self._logger.debug("Play Now match: found=%s, confidence=%.3f",
+                          play_now_match.found, play_now_match.confidence)
         if play_now_match.found:
-            self._logger.debug("Detected: Play Now screen")
+            self._logger.info("Detected: Play Now screen (conf=%.3f)", play_now_match.confidence)
             return LoginState.PLAY_NOW_SCREEN
 
         # Check for logged in screen (Click Here To Play)
         play_match = self._template_matcher.match(
             screen_image, self.config.play_button_template
         )
+        self._logger.debug("Play button match: found=%s, confidence=%.3f",
+                          play_match.found, play_match.confidence)
         if play_match.found:
-            self._logger.debug("Detected: Logged in screen")
+            self._logger.info("Detected: Logged in screen (conf=%.3f)", play_match.confidence)
             return LoginState.LOGGED_IN_SCREEN
 
+        self._logger.debug("No login screens detected - assuming LOGGED_IN")
         return LoginState.LOGGED_IN
 
     def is_logged_out(self) -> bool:
@@ -115,15 +131,16 @@ class LoginHandlerTest:
             LoginState.LOGGED_IN_SCREEN,
         )
 
-    def perform_relogin(self) -> bool:
+    def perform_relogin(self, save_debug: bool = False) -> bool:
         """Perform the full re-login sequence."""
         self._login_attempts += 1
         self._last_logout_time = time.time()
         self._logger.info("Starting re-login sequence (attempt #%d)", self._login_attempts)
 
         for attempt in range(self.config.max_retries):
-            state = self.detect_login_state()
-            self._logger.debug("Login state: %s (attempt %d)", state.value, attempt + 1)
+            # Save debug screenshot on each attempt
+            state = self.detect_login_state(save_debug=save_debug)
+            self._logger.info("Login state: %s (attempt %d/%d)", state.value, attempt + 1, self.config.max_retries)
 
             if state == LoginState.LOGGED_IN:
                 self._logger.info("Successfully logged back in!")
@@ -220,6 +237,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Test LoginHandler")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     parser.add_argument("--relogin", action="store_true", help="Actually perform re-login (clicks mouse)")
+    parser.add_argument("--debug", action="store_true", help="Save debug screenshots to tests/debug_output/")
     args = parser.parse_args()
 
     setup_logging(args.verbose)
@@ -275,7 +293,7 @@ def main() -> int:
 
     # Detect current state
     logger.info("-" * 40)
-    state = login_handler.detect_login_state()
+    state = login_handler.detect_login_state(save_debug=args.debug)
     logger.info("Current login state: %s", state.value)
     logger.info("Is logged out: %s", login_handler.is_logged_out())
 
@@ -300,7 +318,7 @@ def main() -> int:
             logger.info("Performing re-login sequence...")
             logger.warning("This will move your mouse!")
 
-            success = login_handler.perform_relogin()
+            success = login_handler.perform_relogin(save_debug=args.debug)
 
             if success:
                 logger.info("Re-login successful!")
