@@ -611,6 +611,9 @@ class MouseController:
     ) -> tuple[bool, bool]:
         """Execute the swift click motion.
 
+        Generates a path that goes PAST the target so we click mid-motion
+        while passing through, rather than stopping on the target.
+
         Args:
             target: Click target area
             button: Mouse button
@@ -621,12 +624,31 @@ class MouseController:
         """
         # Calculate target position
         click_result = self.click_handler.calculate_click(target)
-        x, y = click_result.x, click_result.y
+        target_x, target_y = click_result.x, click_result.y
 
-        # Generate path and timing
         start = self.position
-        path = self.bezier.generate_path(start, (x, y))
-        total_time = self.bezier.calculate_movement_time(start, (x, y))
+        dx = target_x - start[0]
+        dy = target_y - start[1]
+        distance = (dx**2 + dy**2) ** 0.5
+
+        # For very short distances, fall back to normal click behavior
+        if distance < 20:
+            if not self.move_to(target_x, target_y):
+                return False, False
+            self._mouse.press(button)
+            time.sleep(click_result.duration)
+            self._mouse.release(button)
+            return True, False
+
+        # Calculate overshoot destination (20-40 pixels past target)
+        norm_dx, norm_dy = dx / distance, dy / distance
+        overshoot_dist = self._rng.integers(20, 41)
+        dest_x = int(target_x + norm_dx * overshoot_dist)
+        dest_y = int(target_y + norm_dy * overshoot_dist)
+
+        # Generate path to overshoot point (passing through target)
+        path = self.bezier.generate_path(start, (dest_x, dest_y))
+        total_time = self.bezier.calculate_movement_time(start, (dest_x, dest_y))
         delays = self.bezier.get_point_delays(path, total_time)
 
         # Find first point inside target bounds
@@ -636,9 +658,9 @@ class MouseController:
                 click_index = i
                 break
 
-        # Fallback: if path never enters target (very short move), click at end
+        # Fallback: click at roughly 60% of path (should be near target)
         if click_index is None:
-            click_index = len(path) - 1
+            click_index = int(len(path) * 0.6)
 
         # Move to click point
         for i in range(click_index + 1):
@@ -650,12 +672,12 @@ class MouseController:
             if i < len(delays):
                 time.sleep(delays[i])
 
-        # Click immediately (shorter hold than normal for swift click)
+        # Click immediately (shorter hold for swift click)
         self._mouse.press(button)
         time.sleep(click_result.duration * 0.6)
         self._mouse.release(button)
 
-        # Follow-through: continue movement after click
+        # Follow-through: continue past the target
         end_index = min(click_index + follow_through_points, len(path))
         for i in range(click_index + 1, end_index):
             if self._stop_flag:
@@ -664,7 +686,7 @@ class MouseController:
             if self._on_move_callback:
                 self._on_move_callback(path[i][0], path[i][1])
             if i < len(delays):
-                time.sleep(delays[i] * 0.5)  # Faster follow-through
+                time.sleep(delays[i] * 0.7)  # Slightly faster follow-through
 
         return True, False
 
