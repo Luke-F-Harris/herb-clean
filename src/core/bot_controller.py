@@ -723,12 +723,8 @@ class BotController:
             )
             was_misclick = False  # Not a misclick, but a drag
         else:
-            # Normal click
-            completed, was_misclick = self.mouse.click_at_target(
-                target,
-                misclick_rate=self.fatigue.get_misclick_rate(),
-                slot_row=slot.row,
-            )
+            # Normal click - use swift click for fluid motion
+            completed, was_misclick = self.mouse.swift_click_at_target(target)
 
         if was_misclick:
             self.session.record_misclick()

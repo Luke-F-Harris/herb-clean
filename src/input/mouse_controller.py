@@ -551,3 +551,169 @@ class MouseController:
 
         self._mouse.scroll(0, clicks)
         return True
+
+    def _point_in_target(self, point: tuple[int, int], target: ClickTarget) -> bool:
+        """Check if a point is within the target's bounding box.
+
+        Args:
+            point: (x, y) coordinates to check
+            target: Click target area
+
+        Returns:
+            True if point is within target bounds
+        """
+        half_w = target.width // 2
+        half_h = target.height // 2
+        return (
+            target.center_x - half_w <= point[0] <= target.center_x + half_w
+            and target.center_y - half_h <= point[1] <= target.center_y + half_h
+        )
+
+    def swift_click_at_target(
+        self,
+        target: ClickTarget,
+        button: Button = Button.left,
+        overshoot_undershoot_rate: float = 0.05,
+        follow_through_points: int = 8,
+    ) -> tuple[bool, bool]:
+        """Move toward target and click while passing through it.
+
+        Clicks as soon as the cursor enters the target bounds, then
+        continues moving briefly for a natural follow-through motion.
+        Includes occasional hesitation and overshoot for realistic variance.
+
+        Args:
+            target: Click target area
+            button: Mouse button
+            overshoot_undershoot_rate: Probability of overshoot/undershoot
+            follow_through_points: Points to continue after clicking
+
+        Returns:
+            (completed, was_misclick) - was_misclick always False
+        """
+        # Optional hesitation before approach (15% chance)
+        if self._should_hesitate():
+            if not self._perform_hesitation(target):
+                return False, False
+
+        # Check for overshoot/undershoot (5% chance by default)
+        if self._rng.random() < overshoot_undershoot_rate:
+            return self._swift_click_with_overshoot(target, button, follow_through_points)
+
+        # Normal swift click path
+        return self._execute_swift_click(target, button, follow_through_points)
+
+    def _execute_swift_click(
+        self,
+        target: ClickTarget,
+        button: Button,
+        follow_through_points: int,
+    ) -> tuple[bool, bool]:
+        """Execute the swift click motion.
+
+        Args:
+            target: Click target area
+            button: Mouse button
+            follow_through_points: Points to continue after clicking
+
+        Returns:
+            (completed, was_misclick) tuple
+        """
+        # Calculate target position
+        click_result = self.click_handler.calculate_click(target)
+        x, y = click_result.x, click_result.y
+
+        # Generate path and timing
+        start = self.position
+        path = self.bezier.generate_path(start, (x, y))
+        total_time = self.bezier.calculate_movement_time(start, (x, y))
+        delays = self.bezier.get_point_delays(path, total_time)
+
+        # Find first point inside target bounds
+        click_index = None
+        for i, point in enumerate(path):
+            if self._point_in_target(point, target):
+                click_index = i
+                break
+
+        # Fallback: if path never enters target (very short move), click at end
+        if click_index is None:
+            click_index = len(path) - 1
+
+        # Move to click point
+        for i in range(click_index + 1):
+            if self._stop_flag:
+                return False, False
+            self._mouse.position = path[i]
+            if self._on_move_callback:
+                self._on_move_callback(path[i][0], path[i][1])
+            if i < len(delays):
+                time.sleep(delays[i])
+
+        # Click immediately (shorter hold than normal for swift click)
+        self._mouse.press(button)
+        time.sleep(click_result.duration * 0.6)
+        self._mouse.release(button)
+
+        # Follow-through: continue movement after click
+        end_index = min(click_index + follow_through_points, len(path))
+        for i in range(click_index + 1, end_index):
+            if self._stop_flag:
+                return True, False  # Click already happened
+            self._mouse.position = path[i]
+            if self._on_move_callback:
+                self._on_move_callback(path[i][0], path[i][1])
+            if i < len(delays):
+                time.sleep(delays[i] * 0.5)  # Faster follow-through
+
+        return True, False
+
+    def _swift_click_with_overshoot(
+        self,
+        target: ClickTarget,
+        button: Button,
+        follow_through_points: int,
+    ) -> tuple[bool, bool]:
+        """Swift click with overshoot/undershoot correction first.
+
+        Args:
+            target: Click target area
+            button: Mouse button
+            follow_through_points: Points to continue after clicking
+
+        Returns:
+            (completed, was_misclick) tuple
+        """
+        # Calculate direction and overshoot position
+        click_result = self.click_handler.calculate_click(target)
+        target_x, target_y = click_result.x, click_result.y
+        current = self.position
+
+        dx = target_x - current[0]
+        dy = target_y - current[1]
+        distance = (dx**2 + dy**2) ** 0.5
+
+        if distance < 10:
+            # Too close, just do normal swift click
+            return self._execute_swift_click(target, button, follow_through_points)
+
+        norm_dx, norm_dy = dx / distance, dy / distance
+
+        if self._rng.random() < 0.5:  # Overshoot
+            extra = self._rng.integers(10, 31)
+            stop_x = int(target_x + norm_dx * extra)
+            stop_y = int(target_y + norm_dy * extra)
+        else:  # Undershoot
+            short = self._rng.integers(10, 26)
+            stop_x = int(target_x - norm_dx * short)
+            stop_y = int(target_y - norm_dy * short)
+
+        # Move to wrong position
+        if not self.move_to(stop_x, stop_y):
+            return False, False
+
+        # Brief pause realizing we're wrong
+        time.sleep(self._rng.uniform(0.05, 0.15))
+
+        # Now do swift click to correct position
+        return self._execute_swift_click(target, button, follow_through_points)
