@@ -901,8 +901,9 @@ class BotMovementVisualizer:
         inventory_slots: Optional[list[tuple[int, int]]] = None,
         has_clean_herbs: bool = False,
         num_grimy_herbs: int = 28,
+        num_cycles: int = 2,
     ):
-        """Simulate a full herb cleaning cycle using bot logic.
+        """Simulate herb cleaning cycles using bot logic.
 
         This replicates the BotController state machine:
         IDLE -> BANKING_OPEN -> BANKING_DEPOSIT -> BANKING_WITHDRAW ->
@@ -914,8 +915,9 @@ class BotMovementVisualizer:
             grimy_herb_pos: Position of grimy herbs in bank
             close_button_pos: Position of bank close button
             inventory_slots: List of inventory slot positions
-            has_clean_herbs: Whether inventory has clean herbs to deposit
-            num_grimy_herbs: Number of grimy herbs to clean
+            has_clean_herbs: Whether inventory has clean herbs to deposit (first cycle)
+            num_grimy_herbs: Number of grimy herbs to clean per cycle
+            num_cycles: Number of full banking+cleaning cycles to simulate
         """
         # Use detected positions if available, otherwise fall back to defaults
         if bank_booth_pos is None:
@@ -942,175 +944,181 @@ class BotMovementVisualizer:
         current_time = 0.3  # Initial pause
         current_pos = (self.width // 2, self.height // 2)
 
-        # === STATE: BANKING_OPEN ===
-        # Click bank booth (replicates _handle_banking_open)
-        booth_target = ClickTarget(
-            center_x=bank_booth_pos[0],
-            center_y=bank_booth_pos[1],
-            width=40, height=40,
-        )
-        current_pos, current_time = self._simulate_move_to_target(
-            current_pos, booth_target, self.COLOR_BANK_BOOTH, current_time,
-            label="Click bank booth"
-        )
+        for cycle in range(num_cycles):
+            print(f"\n  --- Cycle {cycle + 1}/{num_cycles} ---")
 
-        # Wait for bank to open (timing.get_delay(ActionType.OPEN_BANK))
-        bank_open_delay = self.timing.get_delay(ActionType.OPEN_BANK)
-        current_time = self._add_delay(current_time, bank_open_delay)
+            # After first cycle, we always have clean herbs to deposit
+            cycle_has_clean_herbs = has_clean_herbs if cycle == 0 else True
 
-        # State transition: bank is now open
-        if has_clean_herbs:
-            self._add_state_transition(current_time, GameState.BANK_OPEN_CLEAN)
-        else:
-            self._add_state_transition(current_time, GameState.BANK_OPEN)
-
-        # Post-open delay
-        post_open_delay = self.timing.get_post_action_delay(ActionType.OPEN_BANK)
-        current_time = self._add_delay(current_time, post_open_delay)
-
-        # === STATE: BANKING_DEPOSIT (if has clean herbs) ===
-        if has_clean_herbs:
-            # Randomize deposit method: deposit button vs click clean herb (30% herb click)
-            deposit_click_herb_chance = self.config.get("bank.deposit_click_herb_chance", 0.30)
-            use_herb_click = self._rng.random() < deposit_click_herb_chance
-
-            if use_herb_click and inventory_slots:
-                # Click a random "clean herb" slot (pick from first 28 slots)
-                herb_slot_idx = self._rng.integers(0, min(28, len(inventory_slots)))
-                herb_slot_pos = inventory_slots[herb_slot_idx]
-                inv_cfg = self.config.window.get("inventory", {})
-                deposit_target = ClickTarget(
-                    center_x=herb_slot_pos[0],
-                    center_y=herb_slot_pos[1],
-                    width=inv_cfg.get("slot_width", 42),
-                    height=inv_cfg.get("slot_height", 36),
-                )
-                print(f"  Depositing by clicking clean herb at slot {herb_slot_idx}")
-                current_pos, current_time = self._simulate_move_to_target(
-                    current_pos, deposit_target, self.COLOR_DEPOSIT, current_time,
-                    label=f"Deposit herb (slot {herb_slot_idx})"
-                )
-            else:
-                # Click deposit button
-                deposit_target = ClickTarget(
-                    center_x=deposit_button_pos[0],
-                    center_y=deposit_button_pos[1],
-                    width=35, height=25,
-                )
-                current_pos, current_time = self._simulate_move_to_target(
-                    current_pos, deposit_target, self.COLOR_DEPOSIT, current_time,
-                    label="Deposit herbs"
-                )
-            post_deposit_delay = self.timing.get_post_action_delay(ActionType.DEPOSIT)
-            current_time = self._add_delay(current_time, post_deposit_delay)
-
-            # State transition: inventory now empty, showing normal bank view
-            self._add_state_transition(current_time, GameState.BANK_OPEN)
-
-        # === STATE: BANKING_WITHDRAW ===
-        herb_target = ClickTarget(
-            center_x=grimy_herb_pos[0],
-            center_y=grimy_herb_pos[1],
-            width=32, height=32,
-        )
-        current_pos, current_time = self._simulate_move_to_target(
-            current_pos, herb_target, self.COLOR_WITHDRAW, current_time,
-            label="Withdraw grimy herbs"
-        )
-        post_withdraw_delay = self.timing.get_post_action_delay(ActionType.WITHDRAW)
-        current_time = self._add_delay(current_time, post_withdraw_delay)
-
-        # === STATE: BANKING_CLOSE ===
-        # Random choice: ESC (70%) or click close button (30%)
-        use_esc = self._rng.random() < self.esc_chance
-
-        if use_esc:
-            current_time = self._simulate_keypress("Escape", current_time)
-        else:
-            close_target = ClickTarget(
-                center_x=close_button_pos[0],
-                center_y=close_button_pos[1],
-                width=21, height=21,
+            # === STATE: BANKING_OPEN ===
+            # Click bank booth (replicates _handle_banking_open)
+            booth_target = ClickTarget(
+                center_x=bank_booth_pos[0],
+                center_y=bank_booth_pos[1],
+                width=40, height=40,
             )
             current_pos, current_time = self._simulate_move_to_target(
-                current_pos, close_target, self.COLOR_CLOSE_BANK, current_time,
-                label="Close bank"
+                current_pos, booth_target, self.COLOR_BANK_BOOTH, current_time,
+                label=f"[C{cycle+1}] Click bank booth"
             )
 
-        post_close_delay = self.timing.get_post_action_delay(ActionType.CLOSE_BANK)
-        current_time = self._add_delay(current_time, post_close_delay)
+            # Wait for bank to open (timing.get_delay(ActionType.OPEN_BANK))
+            bank_open_delay = self.timing.get_delay(ActionType.OPEN_BANK)
+            current_time = self._add_delay(current_time, bank_open_delay)
 
-        # State transition: bank is closed, inventory has grimy herbs
-        self._add_state_transition(current_time, GameState.INVENTORY_GRIMY)
-
-        # === STATE: CLEANING ===
-        # Click grimy herbs using randomized traversal pattern
-        herbs_to_clean = min(num_grimy_herbs, len(inventory_slots))
-
-        # Select random traversal pattern (same as real bot)
-        pattern = self.traversal.random_pattern()
-        traversal_order = self.traversal.generate_order(pattern)
-
-        # Filter to only slots with grimy herbs (first N slots)
-        grimy_indices = set(range(herbs_to_clean))
-        traversal_order = [i for i in traversal_order if i in grimy_indices]
-
-        # Skip herb simulation (5% chance, same as real bot)
-        skip_chance = self.config.get("cleaning.skip_herb_chance", 0.05)
-        slots_to_skip = set()
-        for slot_idx in traversal_order:
-            if self._rng.random() < skip_chance and len(slots_to_skip) < 2:
-                slots_to_skip.add(slot_idx)
-                print(f"  Skipping slot {slot_idx}")
-
-        # Filter out skipped slots
-        traversal_order = [i for i in traversal_order if i not in slots_to_skip]
-
-        print(f"  Using traversal pattern: {pattern.value}")
-        print(f"  First 8 slots in order: {traversal_order[:8]}")
-        if slots_to_skip:
-            print(f"  Skipped slots: {sorted(slots_to_skip)}")
-
-        inv_cfg = self.config.window.get("inventory", {})
-        slot_width = inv_cfg.get("slot_width", 42)
-        slot_height = inv_cfg.get("slot_height", 36)
-        accidental_drag_chance = self.config.get("cleaning.accidental_drag_chance", 0.05)
-        overshoot_undershoot_rate = self.config.get("cleaning.overshoot_undershoot_rate", 0.05)
-
-        for count, slot_idx in enumerate(traversal_order):
-            slot_pos = inventory_slots[slot_idx]
-            slot_row = slot_idx // 4  # Calculate row (0-6) from slot index
-            slot_col = slot_idx % 4   # Calculate column (0-3) from slot index
-
-            slot_target = ClickTarget(
-                center_x=slot_pos[0],
-                center_y=slot_pos[1],
-                width=slot_width,
-                height=slot_height,
-            )
-
-            # Check for accidental drag (5% chance, only on middle rows)
-            allow_drag = 0 < slot_row < 6
-            if allow_drag and self._rng.random() < accidental_drag_chance:
-                # Simulate accidental drag
-                current_pos, current_time = self._simulate_accidental_drag(
-                    current_pos, slot_target, current_time,
-                    slot_row, slot_col, slot_width, slot_height,
-                    label=f"Clean herb {count+1} (slot {slot_idx})",
-                )
+            # State transition: bank is now open
+            if cycle_has_clean_herbs:
+                self._add_state_transition(current_time, GameState.BANK_OPEN_CLEAN)
             else:
-                # Normal click (with possible misclick or overshoot/undershoot)
+                self._add_state_transition(current_time, GameState.BANK_OPEN)
+
+            # Post-open delay
+            post_open_delay = self.timing.get_post_action_delay(ActionType.OPEN_BANK)
+            current_time = self._add_delay(current_time, post_open_delay)
+
+            # === STATE: BANKING_DEPOSIT (if has clean herbs) ===
+            if cycle_has_clean_herbs:
+                # Randomize deposit method: deposit button vs click clean herb (30% herb click)
+                deposit_click_herb_chance = self.config.get("bank.deposit_click_herb_chance", 0.30)
+                use_herb_click = self._rng.random() < deposit_click_herb_chance
+
+                if use_herb_click and inventory_slots:
+                    # Click a random "clean herb" slot (pick from first 28 slots)
+                    herb_slot_idx = self._rng.integers(0, min(28, len(inventory_slots)))
+                    herb_slot_pos = inventory_slots[herb_slot_idx]
+                    inv_cfg = self.config.window.get("inventory", {})
+                    deposit_target = ClickTarget(
+                        center_x=herb_slot_pos[0],
+                        center_y=herb_slot_pos[1],
+                        width=inv_cfg.get("slot_width", 42),
+                        height=inv_cfg.get("slot_height", 36),
+                    )
+                    print(f"  Depositing by clicking clean herb at slot {herb_slot_idx}")
+                    current_pos, current_time = self._simulate_move_to_target(
+                        current_pos, deposit_target, self.COLOR_DEPOSIT, current_time,
+                        label=f"[C{cycle+1}] Deposit herb (slot {herb_slot_idx})"
+                    )
+                else:
+                    # Click deposit button
+                    deposit_target = ClickTarget(
+                        center_x=deposit_button_pos[0],
+                        center_y=deposit_button_pos[1],
+                        width=35, height=25,
+                    )
+                    current_pos, current_time = self._simulate_move_to_target(
+                        current_pos, deposit_target, self.COLOR_DEPOSIT, current_time,
+                        label=f"[C{cycle+1}] Deposit herbs"
+                    )
+                post_deposit_delay = self.timing.get_post_action_delay(ActionType.DEPOSIT)
+                current_time = self._add_delay(current_time, post_deposit_delay)
+
+                # State transition: inventory now empty, showing normal bank view
+                self._add_state_transition(current_time, GameState.BANK_OPEN)
+
+            # === STATE: BANKING_WITHDRAW ===
+            herb_target = ClickTarget(
+                center_x=grimy_herb_pos[0],
+                center_y=grimy_herb_pos[1],
+                width=32, height=32,
+            )
+            current_pos, current_time = self._simulate_move_to_target(
+                current_pos, herb_target, self.COLOR_WITHDRAW, current_time,
+                label=f"[C{cycle+1}] Withdraw grimy herbs"
+            )
+            post_withdraw_delay = self.timing.get_post_action_delay(ActionType.WITHDRAW)
+            current_time = self._add_delay(current_time, post_withdraw_delay)
+
+            # === STATE: BANKING_CLOSE ===
+            # Random choice: ESC (70%) or click close button (30%)
+            use_esc = self._rng.random() < self.esc_chance
+
+            if use_esc:
+                current_time = self._simulate_keypress("Escape", current_time)
+            else:
+                close_target = ClickTarget(
+                    center_x=close_button_pos[0],
+                    center_y=close_button_pos[1],
+                    width=21, height=21,
+                )
                 current_pos, current_time = self._simulate_move_to_target(
-                    current_pos, slot_target, self.COLOR_INVENTORY, current_time,
-                    label=f"Clean herb {count+1} (slot {slot_idx})",
-                    slot_row=slot_row,
-                    misclick_rate=0.03,  # 3% misclick rate
-                    overshoot_undershoot_rate=overshoot_undershoot_rate,
+                    current_pos, close_target, self.COLOR_CLOSE_BANK, current_time,
+                    label=f"[C{cycle+1}] Close bank"
                 )
 
-            # Delay between herb clicks (timing.get_delay(ActionType.CLICK_HERB))
-            herb_delay = self.timing.get_delay(ActionType.CLICK_HERB)
-            current_time = self._add_delay(current_time, herb_delay)
+            post_close_delay = self.timing.get_post_action_delay(ActionType.CLOSE_BANK)
+            current_time = self._add_delay(current_time, post_close_delay)
+
+            # State transition: bank is closed, inventory has grimy herbs
+            self._add_state_transition(current_time, GameState.INVENTORY_GRIMY)
+
+            # === STATE: CLEANING ===
+            # Click grimy herbs using randomized traversal pattern
+            herbs_to_clean = min(num_grimy_herbs, len(inventory_slots))
+
+            # Select random traversal pattern (same as real bot)
+            pattern = self.traversal.random_pattern()
+            traversal_order = self.traversal.generate_order(pattern)
+
+            # Filter to only slots with grimy herbs (first N slots)
+            grimy_indices = set(range(herbs_to_clean))
+            traversal_order = [i for i in traversal_order if i in grimy_indices]
+
+            # Skip herb simulation (5% chance, same as real bot)
+            skip_chance = self.config.get("cleaning.skip_herb_chance", 0.05)
+            slots_to_skip = set()
+            for slot_idx in traversal_order:
+                if self._rng.random() < skip_chance and len(slots_to_skip) < 2:
+                    slots_to_skip.add(slot_idx)
+                    print(f"  Skipping slot {slot_idx}")
+
+            # Filter out skipped slots
+            traversal_order = [i for i in traversal_order if i not in slots_to_skip]
+
+            print(f"  Using traversal pattern: {pattern.value}")
+            print(f"  First 8 slots in order: {traversal_order[:8]}")
+            if slots_to_skip:
+                print(f"  Skipped slots: {sorted(slots_to_skip)}")
+
+            inv_cfg = self.config.window.get("inventory", {})
+            slot_width = inv_cfg.get("slot_width", 42)
+            slot_height = inv_cfg.get("slot_height", 36)
+            accidental_drag_chance = self.config.get("cleaning.accidental_drag_chance", 0.05)
+            overshoot_undershoot_rate = self.config.get("cleaning.overshoot_undershoot_rate", 0.05)
+
+            for count, slot_idx in enumerate(traversal_order):
+                slot_pos = inventory_slots[slot_idx]
+                slot_row = slot_idx // 4  # Calculate row (0-6) from slot index
+                slot_col = slot_idx % 4   # Calculate column (0-3) from slot index
+
+                slot_target = ClickTarget(
+                    center_x=slot_pos[0],
+                    center_y=slot_pos[1],
+                    width=slot_width,
+                    height=slot_height,
+                )
+
+                # Check for accidental drag (5% chance, only on middle rows)
+                allow_drag = 0 < slot_row < 6
+                if allow_drag and self._rng.random() < accidental_drag_chance:
+                    # Simulate accidental drag
+                    current_pos, current_time = self._simulate_accidental_drag(
+                        current_pos, slot_target, current_time,
+                        slot_row, slot_col, slot_width, slot_height,
+                        label=f"[C{cycle+1}] Clean herb {count+1} (slot {slot_idx})",
+                    )
+                else:
+                    # Normal click (with possible misclick or overshoot/undershoot)
+                    current_pos, current_time = self._simulate_move_to_target(
+                        current_pos, slot_target, self.COLOR_INVENTORY, current_time,
+                        label=f"[C{cycle+1}] Clean herb {count+1} (slot {slot_idx})",
+                        slot_row=slot_row,
+                        misclick_rate=0.03,  # 3% misclick rate
+                        overshoot_undershoot_rate=overshoot_undershoot_rate,
+                    )
+
+                # Delay between herb clicks (timing.get_delay(ActionType.CLICK_HERB))
+                herb_delay = self.timing.get_delay(ActionType.CLICK_HERB)
+                current_time = self._add_delay(current_time, herb_delay)
 
     def init_pygame(self):
         """Initialize pygame display."""
@@ -1499,8 +1507,9 @@ def main():
     parser = argparse.ArgumentParser(description="Visualize bot movements using actual bot logic")
     parser.add_argument("-c", "--config", type=str, default=None, help="Path to bot config file")
     parser.add_argument("--demo", action="store_true", help="Run without RuneLite (demo mode)")
-    parser.add_argument("--herbs", type=int, default=28, help="Number of herbs to clean (default: 28)")
-    parser.add_argument("--no-deposit", action="store_true", help="Skip deposit step (no clean herbs in inventory)")
+    parser.add_argument("--herbs", type=int, default=28, help="Number of herbs to clean per cycle (default: 28)")
+    parser.add_argument("--cycles", type=int, default=2, help="Number of bank+clean cycles (default: 2)")
+    parser.add_argument("--no-deposit", action="store_true", help="Skip deposit step on first cycle")
     parser.add_argument("--debug", action="store_true", help="Show click target rectangles for debugging positions")
     args = parser.parse_args()
 
@@ -1549,10 +1558,11 @@ def main():
 
         # Reset and simulate new cycle
         visualizer.reset_simulation()
-        print(f"Simulating herb cleaning cycle ({args.herbs} herbs, deposit={'yes' if has_deposit else 'no'})...")
+        print(f"Simulating {args.cycles} cycles ({args.herbs} herbs/cycle, first deposit={'yes' if has_deposit else 'no'})...")
         visualizer.simulate_full_cycle(
             has_clean_herbs=has_deposit,
             num_grimy_herbs=args.herbs,
+            num_cycles=args.cycles,
         )
 
         print(f"Generated {len(visualizer.path_segments)} movement paths")
