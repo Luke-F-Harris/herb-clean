@@ -69,6 +69,7 @@ class BotController:
             template_matcher=self.template_matcher,
             inventory_config=self.config.window.get("inventory", {}),
             grimy_templates=self.config.get("herbs.grimy", []),
+            clean_templates=self.config.get("herbs.clean", []),
             auto_detect=self.config.window.get("auto_detect_inventory", True),
             inventory_template_path=str(inventory_template_path) if inventory_template_path else None,
             traversal_config=self.config.get_section("traversal"),

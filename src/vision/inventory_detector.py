@@ -44,6 +44,7 @@ class InventoryDetector:
         template_matcher: TemplateMatcher,
         inventory_config: dict,
         grimy_templates: list[dict],
+        clean_templates: Optional[list[dict]] = None,
         auto_detect: bool = True,
         inventory_template_path: Optional[str] = None,
         traversal_config: Optional[dict] = None,
@@ -55,6 +56,7 @@ class InventoryDetector:
             template_matcher: Template matcher instance
             inventory_config: Inventory position config (used as fallback)
             grimy_templates: List of grimy herb template configs
+            clean_templates: List of clean herb template configs
             auto_detect: Enable auto-detection of inventory position
             inventory_template_path: Optional path to inventory template image
             traversal_config: Optional traversal pattern configuration
@@ -64,6 +66,7 @@ class InventoryDetector:
         self.matcher = template_matcher
         self.config = inventory_config
         self.grimy_templates = grimy_templates
+        self.clean_templates = clean_templates or []
         self._auto_detect = auto_detect
 
         # Initialize auto-detector with template if provided
@@ -205,15 +208,25 @@ class InventoryDetector:
                     slot.item_name = herb_config["name"]
                     break
 
-            # If template matching failed, try color-based detection (robust fallback)
-            if slot.state == SlotState.EMPTY and self._detect_grimy_herb_by_color(slot_region):
-                slot.state = SlotState.GRIMY_HERB
-                slot.item_name = "grimy_herb"  # Generic name when detected by color
-
-            # If not grimy and not empty, might be clean herb
+            # Check for clean herbs using template matching
             if slot.state == SlotState.EMPTY:
-                # Check if slot has content (simple color variance check)
-                if self._slot_has_content(slot_region):
+                for herb_config in self.clean_templates:
+                    template_name = herb_config["template"]
+                    match = self.matcher.match(slot_region, template_name)
+
+                    if match.found:
+                        slot.state = SlotState.CLEAN_HERB
+                        slot.item_name = herb_config["name"]
+                        break
+
+            # If template matching failed for both, check if slot has content
+            if slot.state == SlotState.EMPTY and self._slot_has_content(slot_region):
+                # Use color-based detection to distinguish grimy from clean
+                if self._detect_grimy_herb_by_color(slot_region):
+                    slot.state = SlotState.GRIMY_HERB
+                    slot.item_name = "grimy_herb"  # Generic name when detected by color
+                else:
+                    # Has content but not grimy colors = likely clean herb or other item
                     slot.state = SlotState.CLEAN_HERB
 
         return self.slots

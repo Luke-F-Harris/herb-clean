@@ -154,6 +154,27 @@ herbs:
     template: grimy_dwarf_weed.png
   - name: grimy_torstol
     template: grimy_torstol.png
+  clean:
+  - name: clean_ranarr
+    template: clean_ranarr.png
+  - name: clean_toadflax
+    template: clean_toadflax.png
+  - name: clean_irit
+    template: clean_irit.png
+  - name: clean_avantoe
+    template: clean_avantoe.png
+  - name: clean_kwuarm
+    template: clean_kwuarm.png
+  - name: clean_snapdragon
+    template: clean_snapdragon.png
+  - name: clean_cadantine
+    template: clean_cadantine.png
+  - name: clean_lantadyme
+    template: clean_lantadyme.png
+  - name: clean_dwarf_weed
+    template: clean_dwarf_weed.png
+  - name: clean_torstol
+    template: clean_torstol.png
 cleaning:
   skip_herb_chance: 0.05        # 5% chance to skip to next herb
   hesitation:
