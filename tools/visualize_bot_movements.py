@@ -10,24 +10,83 @@ Captures a screenshot and replays the simulated cycle with a cursor ball.
 """
 
 import argparse
+import importlib.util
 import sys
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pygame
+import yaml
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from core.config_manager import ConfigManager
-from input.bezier_movement import BezierMovement, MovementConfig
-from input.click_handler import ClickHandler, ClickConfig, ClickTarget
-from vision.screen_capture import ScreenCapture
-from anti_detection.timing_randomizer import TimingRandomizer, ActionType, TimingConfig
+def _load_module_direct(module_name: str, file_path: Path):
+    """Load a module directly from file, bypassing __init__.py."""
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# Load modules directly to avoid __init__.py import chains
+_src_dir = Path(__file__).parent.parent / "src"
+
+_bezier_mod = _load_module_direct("bezier_movement", _src_dir / "input" / "bezier_movement.py")
+BezierMovement = _bezier_mod.BezierMovement
+MovementConfig = _bezier_mod.MovementConfig
+
+_click_mod = _load_module_direct("click_handler", _src_dir / "input" / "click_handler.py")
+ClickHandler = _click_mod.ClickHandler
+ClickConfig = _click_mod.ClickConfig
+ClickTarget = _click_mod.ClickTarget
+
+_timing_mod = _load_module_direct("timing_randomizer", _src_dir / "anti_detection" / "timing_randomizer.py")
+TimingRandomizer = _timing_mod.TimingRandomizer
+ActionType = _timing_mod.ActionType
+TimingConfig = _timing_mod.TimingConfig
+
+
+class SimpleConfigManager:
+    """Minimal config manager that loads YAML without complex dependencies."""
+
+    DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "config" / "default_config.yaml"
+
+    def __init__(self, config_path: str | Path | None = None):
+        self.config_path = Path(config_path) if config_path else self.DEFAULT_CONFIG_PATH
+        self._config: dict[str, Any] = {}
+        if self.config_path.exists():
+            with open(self.config_path, "r") as f:
+                self._config = yaml.safe_load(f) or {}
+
+    def get(self, key: str, default: Any = None) -> Any:
+        keys = key.split(".")
+        value = self._config
+        for k in keys:
+            if isinstance(value, dict) and k in value:
+                value = value[k]
+            else:
+                return default
+        return value
+
+    @property
+    def timing(self) -> dict[str, Any]:
+        return self._config.get("timing", {})
+
+    @property
+    def mouse(self) -> dict[str, Any]:
+        return self._config.get("mouse", {})
+
+    @property
+    def click(self) -> dict[str, Any]:
+        return self._config.get("click", {})
+
+    @property
+    def window(self) -> dict[str, Any]:
+        return self._config.get("window", {})
 
 
 class GameState(Enum):
@@ -98,10 +157,7 @@ class BotMovementVisualizer:
             config_path: Path to bot config file
         """
         # Load bot configuration
-        self.config = ConfigManager(config_path)
-
-        # Initialize same components as BotController
-        self.screen_capture = ScreenCapture(self.config.window.get("title", "RuneLite"))
+        self.config = SimpleConfigManager(config_path)
 
         # Movement config from bot settings
         mouse_cfg = self.config.mouse
@@ -170,20 +226,15 @@ class BotMovementVisualizer:
     def capture_screenshot(self) -> bool:
         """Capture screenshot from RuneLite.
 
+        Note: Screen capture requires additional dependencies.
+        Use --demo mode for standalone operation.
+
         Returns:
             True if successful
         """
-        bounds = self.screen_capture.find_window()
-        if bounds is None:
-            return False
-
-        self.screenshot = self.screen_capture.capture_window()
-        if self.screenshot is None:
-            return False
-
-        self.window_offset = (bounds.x, bounds.y)
-        self.height, self.width = self.screenshot.shape[:2]
-        return True
+        # Screen capture disabled in standalone mode
+        # Use --demo flag instead
+        return False
 
     def create_demo_screenshot(self):
         """Create a demo screenshot for testing without RuneLite."""
@@ -882,7 +933,6 @@ def main():
     print("Starting visualization...")
 
     visualizer.run()
-    visualizer.screen_capture.close()
     print("Done!")
 
 
