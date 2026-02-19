@@ -10,10 +10,10 @@ window:
     cols: 4
     rows: 7
 timing:
-  click_herb_mean: 600
-  click_herb_std: 150
-  click_herb_min: 350
-  click_herb_max: 1200
+  click_herb_mean: 250
+  click_herb_std: 75
+  click_herb_min: 150
+  click_herb_max: 500
   bank_action_mean: 800
   bank_action_std: 200
   bank_action_min: 500
@@ -135,6 +135,14 @@ herbs:
     template: grimy_dwarf_weed.png
   - name: grimy_torstol
     template: grimy_torstol.png
+cleaning:
+  skip_herb_chance: 0.05        # 5% chance to skip to next herb
+  hesitation:
+    enabled: true
+    chance: 0.15                # 15% chance of hesitation movements
+    movements: [1, 3]           # 1-3 extra movements
+  missed_click:
+    correction_delay: [0.15, 0.35]  # Reaction time before correction
 bank:
   booth_template: bank_booth.png
   chest_template: bank_chest.png

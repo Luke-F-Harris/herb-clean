@@ -74,6 +74,10 @@ class BotController:
 
         # Initialize input components
         mouse_cfg = self.config.mouse
+        cleaning_cfg = self.config.get_section("cleaning")
+        hesitation_cfg = cleaning_cfg.get("hesitation", {})
+        missed_click_cfg = cleaning_cfg.get("missed_click", {})
+
         self.mouse = MouseController(
             movement_config=MovementConfig(
                 speed_range=tuple(mouse_cfg.get("speed_range", [200, 400])),
@@ -87,6 +91,9 @@ class BotController:
                 duration_min=self.config.click.get("duration_min", 50),
                 duration_max=self.config.click.get("duration_max", 200),
             ),
+            hesitation_chance=hesitation_cfg.get("chance", 0.15) if hesitation_cfg.get("enabled", True) else 0.0,
+            hesitation_movements=tuple(hesitation_cfg.get("movements", [1, 3])),
+            correction_delay=tuple(missed_click_cfg.get("correction_delay", [0.15, 0.35])),
         )
         self.keyboard = KeyboardController()
 
@@ -428,6 +435,19 @@ class BotController:
             self.state_machine.start_banking()
             return
 
+        # Occasionally skip to the next herb (5% chance)
+        skip_chance = self.config.get("cleaning.skip_herb_chance", 0.05)
+        if self._rng.random() < skip_chance:
+            grimy_slots = self.inventory.get_grimy_slots()
+            if len(grimy_slots) > 1:
+                try:
+                    current_idx = grimy_slots.index(slot)
+                    if current_idx + 1 < len(grimy_slots):
+                        slot = grimy_slots[current_idx + 1]
+                        self._logger.debug(f"Skipped herb, now targeting slot {slot.index}")
+                except ValueError:
+                    pass  # Slot not in list, continue with original
+
         # Get screen coordinates
         screen_x, screen_y = self.inventory.get_slot_screen_coords(slot.index)
 
@@ -446,6 +466,7 @@ class BotController:
         completed, was_misclick = self.mouse.click_at_target(
             target,
             misclick_rate=self.fatigue.get_misclick_rate(),
+            slot_row=slot.row,
         )
 
         if was_misclick:

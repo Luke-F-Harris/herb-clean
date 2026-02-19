@@ -22,11 +22,11 @@ class ActionType(Enum):
 class TimingConfig:
     """Configuration for timing randomization."""
 
-    # Herb cleaning
-    click_herb_mean: float = 600  # ms
-    click_herb_std: float = 150
-    click_herb_min: float = 350
-    click_herb_max: float = 1200
+    # Herb cleaning (fast clicking)
+    click_herb_mean: float = 250  # ms
+    click_herb_std: float = 75
+    click_herb_min: float = 150
+    click_herb_max: float = 500
 
     # Bank actions
     bank_action_mean: float = 800

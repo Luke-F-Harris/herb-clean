@@ -3,6 +3,7 @@
 import time
 from typing import Optional, Callable
 
+import numpy as np
 from pynput.mouse import Button, Controller as MouseDriver
 
 from .bezier_movement import BezierMovement, MovementConfig
@@ -16,18 +17,30 @@ class MouseController:
         self,
         movement_config: Optional[MovementConfig] = None,
         click_config: Optional[ClickConfig] = None,
+        hesitation_chance: float = 0.15,
+        hesitation_movements: tuple[int, int] = (1, 3),
+        correction_delay: tuple[float, float] = (0.15, 0.35),
     ):
         """Initialize mouse controller.
 
         Args:
             movement_config: Bezier movement configuration
             click_config: Click handling configuration
+            hesitation_chance: Probability of hesitation movements before clicking
+            hesitation_movements: Range of extra movements during hesitation
+            correction_delay: Range of delay before correcting a missed click
         """
         self._mouse = MouseDriver()
         self.bezier = BezierMovement(movement_config)
         self.click_handler = ClickHandler(click_config)
         self._stop_flag = False
         self._on_move_callback: Optional[Callable[[int, int], None]] = None
+        self._rng = np.random.default_rng()
+
+        # Hesitation config
+        self._hesitation_chance = hesitation_chance
+        self._hesitation_movements = hesitation_movements
+        self._correction_delay = correction_delay
 
     @property
     def position(self) -> tuple[int, int]:
@@ -132,11 +145,51 @@ class MouseController:
 
         return True
 
+    def _should_hesitate(self) -> bool:
+        """Determine if hesitation movements should occur before click."""
+        return self._rng.random() < self._hesitation_chance
+
+    def _perform_hesitation(self, target: ClickTarget) -> bool:
+        """Perform hesitation movements within target bounds.
+
+        Args:
+            target: Click target area
+
+        Returns:
+            True if completed, False if stopped
+        """
+        num_moves = self._rng.integers(
+            self._hesitation_movements[0],
+            self._hesitation_movements[1] + 1
+        )
+
+        for _ in range(num_moves):
+            if self._stop_flag:
+                return False
+
+            # Generate position within target bounds (inner third)
+            hx = target.center_x + self._rng.integers(
+                -target.width // 3, target.width // 3 + 1
+            )
+            hy = target.center_y + self._rng.integers(
+                -target.height // 3, target.height // 3 + 1
+            )
+
+            # Shorter path for hesitation
+            if not self.move_to(int(hx), int(hy), num_points=20):
+                return False
+
+            # Brief pause
+            time.sleep(self._rng.uniform(0.03, 0.08))
+
+        return True
+
     def click_at_target(
         self,
         target: ClickTarget,
         button: Button = Button.left,
         misclick_rate: float = 0.0,
+        slot_row: Optional[int] = None,
     ) -> tuple[bool, bool]:
         """Move to target and click with randomization.
 
@@ -144,6 +197,7 @@ class MouseController:
             target: Click target area
             button: Mouse button
             misclick_rate: Probability of misclick
+            slot_row: Inventory row (0-6) for row-aware misclick correction
 
         Returns:
             (completed, was_misclick) tuple
@@ -151,17 +205,52 @@ class MouseController:
         # Calculate click position
         click_result = self.click_handler.calculate_click(target)
 
-        # Check for misclick
+        # Perform hesitation movements before final click (15% chance)
+        if self._should_hesitate():
+            if not self._perform_hesitation(target):
+                return False, False
+
+        # Check for misclick - only allow actual misses on middle rows
         was_misclick = False
         x, y = click_result.x, click_result.y
 
-        if self.click_handler.should_misclick(misclick_rate):
+        # Only allow misclicks on middle rows (not first or last)
+        allow_miss = slot_row is not None and 0 < slot_row < 6
+
+        if allow_miss and self.click_handler.should_misclick(misclick_rate):
+            # Actually miss - click outside the target
             offset = self.click_handler.calculate_misclick_offset()
-            x += offset[0]
-            y += offset[1]
+            miss_x = x + offset[0]
+            miss_y = y + offset[1]
             was_misclick = True
 
-        # Move and click
+            # Move to miss position and click
+            if not self.move_to(miss_x, miss_y):
+                return False, was_misclick
+
+            self._mouse.press(button)
+            time.sleep(click_result.duration)
+            self._mouse.release(button)
+
+            # Correction: pause (human reaction time), then click correctly
+            correction_delay = self._rng.uniform(
+                self._correction_delay[0],
+                self._correction_delay[1]
+            )
+            time.sleep(correction_delay)
+
+            # Recalculate correct position and click
+            corrected = self.click_handler.calculate_click(target)
+            if not self.move_to(corrected.x, corrected.y):
+                return False, was_misclick
+
+            self._mouse.press(button)
+            time.sleep(corrected.duration)
+            self._mouse.release(button)
+
+            return True, was_misclick
+
+        # Normal click (no misclick or not allowed on this row)
         if not self.move_to(x, y):
             return False, was_misclick
 
