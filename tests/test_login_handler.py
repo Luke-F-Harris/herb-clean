@@ -45,11 +45,13 @@ class LoginState(Enum):
 @dataclass
 class LoginConfig:
     """Configuration for login handling."""
-    wait_after_ok_click: tuple[float, float] = (2.0, 4.0)
-    wait_after_play_now_click: tuple[float, float] = (2.0, 5.0)
-    wait_after_play_click: tuple[float, float] = (3.0, 6.0)
+    # Polling settings - check every interval until state changes or timeout
+    poll_interval: float = 1.0  # Check every 1 second
+    state_change_timeout: float = 30.0  # Max wait for state to change (server connection can be slow)
+
     max_retries: int = 10
-    retry_delay: tuple[float, float] = (1.0, 2.0)
+
+    # Template names
     ok_button_template: str = "inactivity_logout_ok_button.png"
     play_now_template: str = "play_now_button.png"
     play_button_template: str = "logged_in_play_button.png"
@@ -131,6 +133,73 @@ class LoginHandlerTest:
             LoginState.LOGGED_IN_SCREEN,
         )
 
+    def _wait_for_state_change(
+        self,
+        current_state: LoginState,
+        save_debug: bool = False
+    ) -> LoginState:
+        """Poll until state changes from current_state or timeout.
+
+        For LOGGED_IN state, requires 3 consecutive confirmations to avoid
+        false positives during loading screens where no templates match.
+
+        Args:
+            current_state: The state we're waiting to change from
+            save_debug: Whether to save debug screenshots
+
+        Returns:
+            The new state (may be same as current if timeout)
+        """
+        start_time = time.time()
+        poll_count = 0
+        logged_in_confirmations = 0
+        REQUIRED_CONFIRMATIONS = 3  # Need 3 consecutive LOGGED_IN to confirm
+
+        while (time.time() - start_time) < self.config.state_change_timeout:
+            poll_count += 1
+            time.sleep(self.config.poll_interval)
+
+            new_state = self.detect_login_state(save_debug=save_debug)
+            elapsed = time.time() - start_time
+
+            if new_state != current_state:
+                # State changed - but if it's LOGGED_IN, we need to confirm
+                if new_state == LoginState.LOGGED_IN:
+                    logged_in_confirmations += 1
+                    self._logger.debug(
+                        "LOGGED_IN detected (%d/%d confirmations, %.1fs elapsed)",
+                        logged_in_confirmations, REQUIRED_CONFIRMATIONS, elapsed
+                    )
+                    if logged_in_confirmations >= REQUIRED_CONFIRMATIONS:
+                        self._logger.info(
+                            "State confirmed: %s -> %s (after %.1fs, %d polls)",
+                            current_state.value, new_state.value, elapsed, poll_count
+                        )
+                        return new_state
+                    # Not enough confirmations yet, keep polling
+                    continue
+                else:
+                    # Valid new state (not LOGGED_IN), return immediately
+                    logged_in_confirmations = 0  # Reset counter
+                    self._logger.info(
+                        "State changed: %s -> %s (after %.1fs, %d polls)",
+                        current_state.value, new_state.value, elapsed, poll_count
+                    )
+                    return new_state
+            else:
+                # Still in same state
+                logged_in_confirmations = 0  # Reset if we go back to current state
+                self._logger.debug(
+                    "Still in state %s (%.1fs elapsed, poll %d)",
+                    current_state.value, elapsed, poll_count
+                )
+
+        self._logger.warning(
+            "Timeout waiting for state change from %s (%.1fs)",
+            current_state.value, self.config.state_change_timeout
+        )
+        return self.detect_login_state(save_debug=save_debug)
+
     def perform_relogin(self, save_debug: bool = False) -> bool:
         """Perform the full re-login sequence."""
         self._login_attempts += 1
@@ -138,7 +207,7 @@ class LoginHandlerTest:
         self._logger.info("Starting re-login sequence (attempt #%d)", self._login_attempts)
 
         for attempt in range(self.config.max_retries):
-            # Save debug screenshot on each attempt
+            # Detect current state
             state = self.detect_login_state(save_debug=save_debug)
             self._logger.info("Login state: %s (attempt %d/%d)", state.value, attempt + 1, self.config.max_retries)
 
@@ -150,33 +219,31 @@ class LoginHandlerTest:
                 if not self._click_button(self.config.ok_button_template, "OK"):
                     self._logger.warning("Failed to click OK button")
                 else:
-                    wait = self._rng.uniform(*self.config.wait_after_ok_click)
-                    self._logger.debug("Waiting %.1fs after OK click", wait)
-                    time.sleep(wait)
+                    # Poll until state changes from INACTIVITY_LOGOUT
+                    self._wait_for_state_change(LoginState.INACTIVITY_LOGOUT, save_debug)
 
             elif state == LoginState.PLAY_NOW_SCREEN:
                 if not self._click_button(self.config.play_now_template, "Play Now"):
                     self._logger.warning("Failed to click Play Now button")
                 else:
-                    wait = self._rng.uniform(*self.config.wait_after_play_now_click)
-                    self._logger.debug("Waiting %.1fs after Play Now click", wait)
-                    time.sleep(wait)
+                    # Poll until state changes from PLAY_NOW_SCREEN
+                    # This waits through the "Connecting to server..." loading
+                    self._wait_for_state_change(LoginState.PLAY_NOW_SCREEN, save_debug)
 
             elif state == LoginState.LOGGED_IN_SCREEN:
                 if not self._click_button(self.config.play_button_template, "Play"):
                     self._logger.warning("Failed to click Play button")
                 else:
-                    wait = self._rng.uniform(*self.config.wait_after_play_click)
-                    self._logger.debug("Waiting %.1fs after Play click", wait)
-                    time.sleep(wait)
+                    # Poll until state changes from LOGGED_IN_SCREEN
+                    self._wait_for_state_change(LoginState.LOGGED_IN_SCREEN, save_debug)
 
             elif state == LoginState.LOGGING_IN:
-                wait = self._rng.uniform(*self.config.retry_delay)
-                time.sleep(wait)
+                # Already in a loading state, just poll for change
+                self._wait_for_state_change(LoginState.LOGGING_IN, save_debug)
 
             else:
-                wait = self._rng.uniform(*self.config.retry_delay)
-                time.sleep(wait)
+                # Unknown state, wait a bit and retry
+                time.sleep(self.config.poll_interval)
 
         self._logger.error("Re-login failed after %d attempts", self.config.max_retries)
         return False
