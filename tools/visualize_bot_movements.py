@@ -1114,7 +1114,7 @@ def main():
     parser.add_argument("-c", "--config", type=str, default=None, help="Path to bot config file")
     parser.add_argument("--demo", action="store_true", help="Run without RuneLite (demo mode)")
     parser.add_argument("--herbs", type=int, default=28, help="Number of herbs to clean (default: 28)")
-    parser.add_argument("--with-deposit", action="store_true", help="Include deposit step (has clean herbs)")
+    parser.add_argument("--no-deposit", action="store_true", help="Skip deposit step (no clean herbs in inventory)")
     parser.add_argument("--debug", action="store_true", help="Show click target rectangles for debugging positions")
     args = parser.parse_args()
 
@@ -1146,9 +1146,10 @@ def main():
     visualizer.detected_positions = visualizer.detect_ui_positions(screenshots)
 
     # Simulate full cycle
-    print(f"Simulating herb cleaning cycle ({args.herbs} herbs)...")
+    has_deposit = not args.no_deposit
+    print(f"Simulating herb cleaning cycle ({args.herbs} herbs, deposit={'yes' if has_deposit else 'no'})...")
     visualizer.simulate_full_cycle(
-        has_clean_herbs=args.with_deposit,
+        has_clean_herbs=has_deposit,
         num_grimy_herbs=args.herbs,
     )
 
