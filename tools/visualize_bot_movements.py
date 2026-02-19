@@ -919,6 +919,61 @@ class BotMovementVisualizer:
 
         return (target_x, target_y), final_click_time + click_result.duration
 
+    def _detect_skill_ui_position(
+        self,
+        template_name: str,
+        fallback_x_ratio: float,
+        fallback_y_ratio: float,
+        screenshot_state: GameState,
+    ) -> tuple[int, int, int, int]:
+        """Detect a skill UI element position using template matching.
+
+        Mirrors the logic in skill_checker.py._detect_ui_element().
+
+        Args:
+            template_name: Template image filename
+            fallback_x_ratio: X position as ratio of window width (0.0-1.0)
+            fallback_y_ratio: Y position as ratio of window height (0.0-1.0)
+            screenshot_state: Which screenshot to search in
+
+        Returns:
+            (center_x, center_y, width, height) tuple
+        """
+        # Try template matching if vision module available
+        if HAS_VISION:
+            templates_dir = Path(__file__).parent.parent / "config" / "templates"
+            if templates_dir.exists():
+                vision_cfg = self.config.get("vision", {})
+                matcher = TemplateMatcher(
+                    templates_dir=templates_dir,
+                    confidence_threshold=vision_cfg.get("confidence_threshold", 0.70),
+                    multi_scale=True,
+                    scale_range=(0.9, 1.1),
+                    scale_steps=5,
+                )
+
+                # Load the appropriate screenshot
+                screenshots = self.load_screenshots()
+                if screenshot_state in screenshots:
+                    img = screenshots[screenshot_state]
+                    match = matcher.match(img, template_name)
+                    if match.found:
+                        print(f"    Template {template_name} found at ({match.center_x}, {match.center_y}) conf={match.confidence:.2f}")
+                        return (match.center_x, match.center_y, match.width, match.height)
+
+        # Fallback to proportional position
+        fallback_x = int(self.width * fallback_x_ratio)
+        fallback_y = int(self.height * fallback_y_ratio)
+        print(f"    Using fallback position for {template_name}: ({fallback_x}, {fallback_y})")
+        # Default sizes for fallback
+        default_sizes = {
+            "skills_tab.png": (46, 49),
+            "inventory_tab.png": (50, 50),
+            "herblore_skill.png": (46, 43),
+        }
+        w, h = default_sizes.get(template_name, (30, 30))
+        return (fallback_x, fallback_y, w, h)
+
     def _simulate_skill_check(
         self,
         current_pos: tuple[int, int],
@@ -926,6 +981,8 @@ class BotMovementVisualizer:
         hover_duration: float = 5.0,
     ) -> tuple[tuple[int, int], float]:
         """Simulate checking the herblore skill.
+
+        Uses template matching to find UI positions, matching skill_checker.py behavior.
 
         Steps:
         1. Click skills tab icon
@@ -950,17 +1007,18 @@ class BotMovementVisualizer:
         current_time = self._add_delay(current_time, pre_delay)
 
         # Step 1: Click skills tab icon to open skills tab
-        # Skills tab icon at x=509, y=205 (30x30 pixels)
-        skills_tab_x = 509 + 15  # Center of tab
-        skills_tab_y = 205 + 15
-        skills_tab_x += self._rng.integers(-5, 6)
-        skills_tab_y += self._rng.integers(-5, 6)
+        # Use template matching with fallback (same ratios as skill_checker.py)
+        skills_pos = self._detect_skill_ui_position(
+            "skills_tab.png", 0.634, 0.247, GameState.WORLD_VIEW
+        )
+        skills_tab_x = skills_pos[0] + self._rng.integers(-5, 6)
+        skills_tab_y = skills_pos[1] + self._rng.integers(-5, 6)
 
         skills_tab_target = ClickTarget(
             center_x=skills_tab_x,
             center_y=skills_tab_y,
-            width=30,
-            height=30,
+            width=skills_pos[2],
+            height=skills_pos[3],
         )
 
         current_pos, current_time = self._simulate_move_to_target(
@@ -976,21 +1034,12 @@ class BotMovementVisualizer:
         self._add_state_transition(current_time, GameState.SKILLS_TAB)
 
         # Step 2: Move to herblore skill position
-        # Skills panel position (relative to window)
-        # Herblore is row 2, column 1 in the skills grid
-        panel_x = 550
-        panel_y = 210
-        skill_width = 58
-        skill_height = 32
-        herblore_row = 2
-        herblore_col = 1
-
-        herblore_x = panel_x + (herblore_col * skill_width) + (skill_width // 2)
-        herblore_y = panel_y + (herblore_row * skill_height) + (skill_height // 2)
-
-        # Add small random offset
-        herblore_x += self._rng.integers(-8, 9)
-        herblore_y += self._rng.integers(-5, 6)
+        # Use template matching with fallback (same ratios as skill_checker.py)
+        herblore_pos = self._detect_skill_ui_position(
+            "herblore_skill.png", 0.671, 0.344, GameState.SKILLS_TAB
+        )
+        herblore_x = herblore_pos[0] + self._rng.integers(-8, 9)
+        herblore_y = herblore_pos[1] + self._rng.integers(-5, 6)
 
         # Move to herblore (no click, just movement)
         path = self.bezier.generate_path(current_pos, (herblore_x, herblore_y), num_points=60)
@@ -1063,17 +1112,18 @@ class BotMovementVisualizer:
                 current_pos = new_pos
 
         # Step 4: Click inventory tab icon to return
-        # Inventory tab icon at x=571, y=205 (30x30 pixels)
-        inventory_tab_x = 571 + 15  # Center of tab
-        inventory_tab_y = 205 + 15
-        inventory_tab_x += self._rng.integers(-5, 6)
-        inventory_tab_y += self._rng.integers(-5, 6)
+        # Use template matching with fallback (same ratios as skill_checker.py)
+        inv_pos = self._detect_skill_ui_position(
+            "inventory_tab.png", 0.716, 0.247, GameState.SKILLS_TAB
+        )
+        inventory_tab_x = inv_pos[0] + self._rng.integers(-5, 6)
+        inventory_tab_y = inv_pos[1] + self._rng.integers(-5, 6)
 
         inventory_tab_target = ClickTarget(
             center_x=inventory_tab_x,
             center_y=inventory_tab_y,
-            width=30,
-            height=30,
+            width=inv_pos[2],
+            height=inv_pos[3],
         )
 
         current_pos, current_time = self._simulate_move_to_target(
@@ -1465,15 +1515,33 @@ class BotMovementVisualizer:
     def draw_ui_regions(self, game_state: GameState):
         """Draw highlighted boxes around UI regions based on current state.
 
+        Uses proportional positions matching skill_checker.py fallback ratios.
+
         Shows contextual highlights:
         - Skills tab icon when in INVENTORY_GRIMY (target to click)
         - Inventory tab icon when in SKILLS_TAB/HERBLORE_HOVER (return target)
         - Herblore skill when in SKILLS_TAB (hover target)
         """
-        # Define regions (positions relative to game window)
-        skills_tab_rect = pygame.Rect(509, 195, 30, 30)
-        inventory_tab_rect = pygame.Rect(571, 195, 30, 30)
-        herblore_rect = pygame.Rect(579, 270, 58, 32)  # Row 2, Col 1 in skills grid
+        # Calculate positions using same ratios as skill_checker.py
+        # Skills tab: 63.4% horizontal, 24.7% vertical
+        skills_x = int(self.width * 0.634)
+        skills_y = int(self.height * 0.247)
+        skills_w, skills_h = 46, 49  # Template size
+
+        # Inventory tab: 71.6% horizontal, 24.7% vertical
+        inv_x = int(self.width * 0.716)
+        inv_y = int(self.height * 0.247)
+        inv_w, inv_h = 50, 50  # Template size
+
+        # Herblore: 67.1% horizontal, 34.4% vertical
+        herb_x = int(self.width * 0.671)
+        herb_y = int(self.height * 0.344)
+        herb_w, herb_h = 46, 43  # Template size
+
+        # Convert center positions to top-left for pygame.Rect
+        skills_tab_rect = pygame.Rect(skills_x - skills_w//2, skills_y - skills_h//2, skills_w, skills_h)
+        inventory_tab_rect = pygame.Rect(inv_x - inv_w//2, inv_y - inv_h//2, inv_w, inv_h)
+        herblore_rect = pygame.Rect(herb_x - herb_w//2, herb_y - herb_h//2, herb_w, herb_h)
 
         # Colors
         TAB_COLOR = (100, 200, 255)     # Cyan for tabs
