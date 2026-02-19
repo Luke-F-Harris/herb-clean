@@ -21,7 +21,7 @@ mouse:
     max_speed_factor: 1.8        # Fastest points are 1.8x faster than average
     # Micro-pauses during movement (brief hesitations)
     micro_pause:
-      chance: 0.20               # 20% chance per movement
+      chance: 0.0                # Disabled for continuous cleaning
       duration: [0.02, 0.08]     # Duration range in seconds
 
 # =============================================================================
@@ -68,8 +68,8 @@ cleaning:
   overshoot_undershoot_rate: 0.05  # Chance to overshoot/undershoot when clicking
 
   hesitation:
-    enabled: true
-    chance: 0.15                # Chance of hesitation movements
+    enabled: false              # Disabled for continuous cleaning
+    chance: 0.0
     movements: [1, 3]           # Range of extra movements
 
   missed_click:
@@ -78,8 +78,8 @@ cleaning:
   # Post-click micro-drift (subtle mouse movement after clicking)
   # Simulates natural hand tremor/movement that occurs after clicking
   post_click_drift:
-    enabled: true
-    chance: 0.6                 # 60% of clicks have drift
+    enabled: false              # Disabled for continuous cleaning
+    chance: 0.0
     distance: [1, 4]            # Pixels to drift
 
 # =============================================================================
