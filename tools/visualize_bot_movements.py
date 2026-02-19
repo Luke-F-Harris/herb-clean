@@ -222,6 +222,11 @@ class BotMovementVisualizer:
         self.state_transitions: list[tuple[float, GameState]] = []
         self.clock: Optional[pygame.time.Clock] = None
         self.font: Optional[pygame.font.Font] = None
+        self._alpha_surface: Optional[pygame.Surface] = None
+
+        # Performance: cache for completed segments
+        self._completed_segments_cache: list[tuple[PathSegment, int]] = []
+        self._last_cache_time: float = -1.0
 
     def capture_screenshot(self) -> bool:
         """Capture screenshot from RuneLite.
@@ -333,9 +338,7 @@ class BotMovementVisualizer:
         """
         # Calculate randomized click position (same as click_handler.calculate_click)
         click_result = self.click_handler.calculate_click(target)
-        end_x = click_result.x - self.window_offset[0]
-        end_y = click_result.y - self.window_offset[1]
-        end = (end_x, end_y)
+        end = (click_result.x, click_result.y)
 
         # Generate Bezier path (same as bezier.generate_path)
         path = self.bezier.generate_path(start, end, num_points=60)
@@ -490,8 +493,8 @@ class BotMovementVisualizer:
         # === STATE: BANKING_OPEN ===
         # Click bank booth (replicates _handle_banking_open)
         booth_target = ClickTarget(
-            center_x=bank_booth_pos[0] + self.window_offset[0],
-            center_y=bank_booth_pos[1] + self.window_offset[1],
+            center_x=bank_booth_pos[0],
+            center_y=bank_booth_pos[1],
             width=40, height=40,
         )
         current_pos, current_time = self._simulate_move_to_target(
@@ -516,8 +519,8 @@ class BotMovementVisualizer:
         # === STATE: BANKING_DEPOSIT (if has clean herbs) ===
         if has_clean_herbs:
             deposit_target = ClickTarget(
-                center_x=deposit_button_pos[0] + self.window_offset[0],
-                center_y=deposit_button_pos[1] + self.window_offset[1],
+                center_x=deposit_button_pos[0],
+                center_y=deposit_button_pos[1],
                 width=35, height=25,
             )
             current_pos, current_time = self._simulate_move_to_target(
@@ -532,8 +535,8 @@ class BotMovementVisualizer:
 
         # === STATE: BANKING_WITHDRAW ===
         herb_target = ClickTarget(
-            center_x=grimy_herb_pos[0] + self.window_offset[0],
-            center_y=grimy_herb_pos[1] + self.window_offset[1],
+            center_x=grimy_herb_pos[0],
+            center_y=grimy_herb_pos[1],
             width=32, height=32,
         )
         current_pos, current_time = self._simulate_move_to_target(
@@ -551,8 +554,8 @@ class BotMovementVisualizer:
             current_time = self._simulate_keypress("Escape", current_time)
         else:
             close_target = ClickTarget(
-                center_x=close_button_pos[0] + self.window_offset[0],
-                center_y=close_button_pos[1] + self.window_offset[1],
+                center_x=close_button_pos[0],
+                center_y=close_button_pos[1],
                 width=21, height=21,
             )
             current_pos, current_time = self._simulate_move_to_target(
@@ -574,8 +577,8 @@ class BotMovementVisualizer:
             inv_cfg = self.config.window.get("inventory", {})
 
             slot_target = ClickTarget(
-                center_x=slot_pos[0] + self.window_offset[0],
-                center_y=slot_pos[1] + self.window_offset[1],
+                center_x=slot_pos[0],
+                center_y=slot_pos[1],
                 width=inv_cfg.get("slot_width", 42),
                 height=inv_cfg.get("slot_height", 36),
             )
@@ -596,6 +599,7 @@ class BotMovementVisualizer:
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("monospace", 16)
         self.font_large = pygame.font.SysFont("monospace", 20, bold=True)
+        self._alpha_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
 
         # Convert screenshot to pygame surface (BGR to RGB) for fallback
         screenshot_rgb = self.screenshot[:, :, ::-1].copy()
@@ -645,10 +649,8 @@ class BotMovementVisualizer:
 
     def draw_path_with_alpha(self, p1: tuple[int, int], p2: tuple[int, int],
                              thickness: int, color: tuple[int, int, int], alpha: int = 100):
-        """Draw a line segment with alpha transparency."""
-        temp_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-        pygame.draw.line(temp_surface, (*color, alpha), p1, p2, thickness)
-        self.screen.blit(temp_surface, (0, 0))
+        """Draw a line segment with alpha transparency to shared alpha surface."""
+        pygame.draw.line(self._alpha_surface, (*color, alpha), p1, p2, thickness)
 
     def draw_cursor(self, pos: tuple[int, int], clicking: bool = False):
         """Draw the cursor ball."""
@@ -753,46 +755,76 @@ class BotMovementVisualizer:
             self.screen.blit(text_surface, text_rect)
 
     def get_cursor_position_at_time(self, t: float) -> tuple[tuple[int, int], bool]:
-        """Get cursor position at given time."""
+        """Get cursor position at given time.
+
+        Optimized with reverse iteration and early termination since actions are chronological.
+        """
         is_clicking = False
+        cursor_pos = (self.width // 2, self.height // 2)
 
-        # Check if clicking
-        for click in self.click_events:
-            if click.timestamp <= t < click.timestamp + click.duration:
-                is_clicking = True
-                break
-
-        # Find active movement
-        for action in self.actions:
-            if action.action_type == "move" and action.start_time <= t < action.end_time:
-                segment = action.data["segment"]
-                progress = (t - action.start_time) / (action.end_time - action.start_time)
-                point_index = int(progress * (len(segment.points) - 1))
-                point_index = min(point_index, len(segment.points) - 1)
-                return segment.points[point_index], is_clicking
-
-        # Find last completed movement
-        last_pos = (self.width // 2, self.height // 2)
+        # Iterate in reverse since actions are chronological - find relevant action faster
         for action in reversed(self.actions):
-            if action.action_type == "move" and action.end_time <= t:
-                last_pos = action.data["segment"].points[-1]
-                break
+            # Skip actions that haven't started yet
+            if action.start_time > t:
+                continue
 
-        return last_pos, is_clicking
+            if action.action_type == "move":
+                if action.start_time <= t < action.end_time:
+                    # Currently moving
+                    segment = action.data["segment"]
+                    progress = (t - action.start_time) / (action.end_time - action.start_time)
+                    point_index = int(progress * (len(segment.points) - 1))
+                    point_index = min(point_index, len(segment.points) - 1)
+                    cursor_pos = segment.points[point_index]
+                    break
+                elif action.end_time <= t:
+                    # Most recent completed movement
+                    cursor_pos = action.data["segment"].points[-1]
+                    break
+
+            elif action.action_type == "click":
+                if action.start_time <= t < action.end_time:
+                    is_clicking = True
+                    # Don't break - still need cursor position from move action
+
+        return cursor_pos, is_clicking
 
     def get_drawn_segments_at_time(self, t: float) -> list[tuple[PathSegment, int]]:
-        """Get path segments to draw at given time."""
-        result = []
-        for action in self.actions:
+        """Get path segments to draw at given time.
+
+        Uses incremental caching to avoid O(n) scans each frame.
+        """
+        # Reset cache if time goes backwards (restart)
+        if t < self._last_cache_time:
+            self._completed_segments_cache = []
+            self._last_cache_time = -1.0
+
+        # Start with cached completed segments
+        result = list(self._completed_segments_cache)
+        cache_size = len(self._completed_segments_cache)
+
+        # Scan only actions beyond current cache
+        for i, action in enumerate(self.actions):
             if action.action_type != "move":
                 continue
             segment = action.data["segment"]
+
             if action.end_time <= t:
-                result.append((segment, len(segment.points)))
+                # Check if this segment is already cached
+                if len(result) <= cache_size or (segment, len(segment.points)) not in self._completed_segments_cache:
+                    completed = (segment, len(segment.points))
+                    if completed not in result:
+                        result.append(completed)
+                        # Add to cache for future frames
+                        if completed not in self._completed_segments_cache:
+                            self._completed_segments_cache.append(completed)
             elif action.start_time <= t < action.end_time:
+                # In-progress segment
                 progress = (t - action.start_time) / (action.end_time - action.start_time)
                 points_drawn = int(progress * len(segment.points))
                 result.append((segment, points_drawn))
+
+        self._last_cache_time = t
         return result
 
     def run(self):
@@ -829,6 +861,9 @@ class BotMovementVisualizer:
                         current_time = 0
                         visible_keypresses = []
                         self.current_state = GameState.WORLD_VIEW
+                        # Clear segment cache on restart
+                        self._completed_segments_cache = []
+                        self._last_cache_time = -1.0
                     elif event.key in (pygame.K_PLUS, pygame.K_EQUALS):
                         speed = min(5.0, speed + 0.5)
                     elif event.key == pygame.K_MINUS:
@@ -840,6 +875,9 @@ class BotMovementVisualizer:
                 if current_time > total_duration:
                     current_time = 0
                     visible_keypresses = []
+                    # Clear segment cache on loop
+                    self._completed_segments_cache = []
+                    self._last_cache_time = -1.0
 
             # Update visible keypresses
             for event in self.keypress_events:
@@ -850,6 +888,9 @@ class BotMovementVisualizer:
             game_state = self.get_game_state_at_time(current_time)
             background = self.backgrounds.get(game_state, self.background)
             self.screen.blit(background, (0, 0))
+
+            # Clear alpha surface once, draw all segments, blit once
+            self._alpha_surface.fill((0, 0, 0, 0))
 
             # Draw path segments
             segments_to_draw = self.get_drawn_segments_at_time(current_time)
@@ -862,11 +903,15 @@ class BotMovementVisualizer:
                     color = self.COLOR_OVERSHOOT if segment.is_overshoot else segment.color
                     self.draw_path_with_alpha(p1, p2, thickness, color, alpha=100)
 
-            # Draw click markers
+            # Blit all path segments at once
+            self.screen.blit(self._alpha_surface, (0, 0))
+
+            # Draw click markers (skip faded ones for performance)
             for click in self.click_events:
                 if click.timestamp <= current_time:
                     age = current_time - click.timestamp
-                    self.draw_click_marker((click.x, click.y), age)
+                    if age < 2.0:
+                        self.draw_click_marker((click.x, click.y), age)
 
             # Draw cursor
             cursor_pos, is_clicking = self.get_cursor_position_at_time(current_time)
