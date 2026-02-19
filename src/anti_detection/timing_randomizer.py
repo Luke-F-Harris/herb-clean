@@ -177,8 +177,8 @@ class TimingRandomizer:
         Returns:
             Delay in seconds (may be 0)
         """
-        # 5% chance of a think pause
-        if self._rng.random() > 0.05:
+        # 1% chance of a think pause
+        if self._rng.random() > 0.01:
             return 0
 
         # Think pauses are 500ms - 2000ms
@@ -193,8 +193,8 @@ class TimingRandomizer:
         Returns:
             True if should pause briefly
         """
-        # 2% chance per action
-        return self._rng.random() < 0.02
+        # 1% chance per action
+        return self._rng.random() < 0.01
 
     def get_micro_pause_duration(self) -> float:
         """Get duration for a micro-pause.

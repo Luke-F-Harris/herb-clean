@@ -29,10 +29,10 @@ mouse:
 # =============================================================================
 timing:
   # Herb cleaning (between clicks)
-  click_herb_mean: 250      # Target average delay (ms)
-  click_herb_std: 75        # Standard deviation
-  click_herb_min: 150       # Absolute minimum
-  click_herb_max: 500       # Absolute maximum
+  click_herb_mean: 100      # Target average delay (ms)
+  click_herb_std: 20        # Standard deviation
+  click_herb_min: 80        # Absolute minimum
+  click_herb_max: 120       # Absolute maximum
 
   # Bank actions
   bank_action_mean: 800
