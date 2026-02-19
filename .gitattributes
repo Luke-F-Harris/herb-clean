@@ -1,2 +1,2 @@
-# Windows batch files must have CRLF line endings
-*.bat text eol=crlf
+# Windows batch files - store as-is with CRLF, no conversion
+*.bat -text
