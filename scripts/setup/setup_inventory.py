@@ -14,8 +14,9 @@ import cv2
 import numpy as np
 import yaml
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# Add src to path (go up to project root, then into src)
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root / "src"))
 
 from vision.screen_capture import ScreenCapture
 
@@ -166,7 +167,7 @@ def capture_inventory_template():
     template = current_image[y1:y2, x1:x2]
 
     # Save template
-    template_dir = Path(__file__).parent / "config" / "templates"
+    template_dir = project_root / "config" / "templates"
     template_dir.mkdir(parents=True, exist_ok=True)
     template_path = template_dir / "inventory_template.png"
 
@@ -183,7 +184,7 @@ def capture_inventory_template():
 
     # Automatically update config file
     print("\n4. Updating config file...")
-    config_path = Path(__file__).parent / "config" / "default_config.yaml"
+    config_path = project_root / "config" / "default_config.yaml"
 
     try:
         # Read current config
@@ -330,7 +331,7 @@ def manual_position_setup():
 
     # Automatically update config file
     print("\n4. Updating config file...")
-    config_path = Path(__file__).parent / "config" / "default_config.yaml"
+    config_path = project_root / "config" / "default_config.yaml"
 
     try:
         # Read current config
