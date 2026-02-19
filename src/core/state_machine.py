@@ -111,7 +111,7 @@ class HerbCleaningStateMachine(StateMachine):
 
     def on_enter_state(self, state: State) -> None:
         """Called when entering any state."""
-        self._state_history.append(state.id)
+        self._state_history.append(state.name)
         # Keep history limited
         if len(self._state_history) > 100:
             self._state_history = self._state_history[-50:]
