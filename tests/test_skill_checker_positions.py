@@ -14,34 +14,40 @@ import cv2
 import numpy as np
 
 
-# Hardcoded positions from skill_checker.py
+# =============================================================================
+# CORRECTED POSITIONS (measured from actual screenshots)
+# These are window-relative coordinates for 1208x802 RuneLite window
+# The right panel starts around x=730, tab icons row is at y=198
+# =============================================================================
+
 SKILLS_TAB = {
-    "x": 509,
-    "y": 205,
-    "width": 30,
+    "x": 765,
+    "y": 198,
+    "width": 33,
     "height": 30,
     "label": "Skills Tab",
     "color": (255, 255, 0),  # Cyan
 }
 
 INVENTORY_TAB = {
-    "x": 571,
-    "y": 205,
-    "width": 30,
+    "x": 865,
+    "y": 198,
+    "width": 33,
     "height": 30,
     "label": "Inventory Tab",
     "color": (0, 255, 0),  # Green
 }
 
-# Herblore position calculated from skill_checker.py
-# panel_x=550, panel_y=210, skill_width=58, skill_height=32
-# herblore_row=2, herblore_col=1
-# herblore_x = 550 + (1 * 58) = 608
-# herblore_y = 210 + (2 * 32) = 274
+# Herblore skill in the skills panel
+# Skills panel content area starts at approximately x=755, y=208
+# Grid: 3 columns x 8 rows, each cell ~56x32 pixels
+# Herblore is at row 2, column 1 (middle column)
+# x = 755 + (1 * 56) = 811
+# y = 208 + (2 * 32) = 272
 HERBLORE_SKILL = {
-    "x": 608,
-    "y": 274,
-    "width": 58,
+    "x": 811,
+    "y": 276,
+    "width": 56,
     "height": 32,
     "label": "Herblore",
     "color": (255, 0, 255),  # Purple
