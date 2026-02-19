@@ -46,6 +46,9 @@ class LoginConfig:
     play_now_template: str = "play_now_button.png"
     play_button_template: str = "logged_in_play_button.png"
 
+    # In-game verification template (proves we're actually in-game)
+    inventory_tab_template: str = "inventory_tab.png"
+
 
 class LoginHandler:
     """Handles logout detection and re-login sequence."""
@@ -110,8 +113,17 @@ class LoginHandler:
             self._logger.debug("Detected: Logged in screen")
             return LoginState.LOGGED_IN_SCREEN
 
-        # If none of the login screens are visible, assume logged in
-        return LoginState.LOGGED_IN
+        # Verify we're actually in-game by checking for inventory tab
+        # This prevents false LOGGED_IN when on unrecognized login screens
+        inventory_match = self._template_matcher.match(
+            screen_image, self.config.inventory_tab_template
+        )
+        if inventory_match.found:
+            return LoginState.LOGGED_IN
+
+        # Neither login screen nor in-game elements found - unknown state
+        self._logger.debug("Unknown state: no login screens or in-game elements found")
+        return LoginState.UNKNOWN
 
     def is_logged_out(self) -> bool:
         """Check if we're logged out.
@@ -125,6 +137,53 @@ class LoginHandler:
             LoginState.PLAY_NOW_SCREEN,
             LoginState.LOGGED_IN_SCREEN,
         )
+
+    def is_ready_to_run(self) -> bool:
+        """Check if we're definitely logged in and ready to run.
+
+        Returns:
+            True only if positively verified as logged in
+        """
+        state = self.detect_login_state()
+        return state == LoginState.LOGGED_IN
+
+    def wait_for_login(self, timeout: float = 300.0) -> bool:
+        """Wait for user to log in.
+
+        Waits until the user is verified as logged in, or timeout.
+
+        Args:
+            timeout: Maximum seconds to wait (default 5 minutes)
+
+        Returns:
+            True if logged in, False if timeout
+        """
+        self._logger.info("Waiting for login... (timeout: %.0fs)", timeout)
+        start_time = time.time()
+
+        while (time.time() - start_time) < timeout:
+            state = self.detect_login_state()
+
+            if state == LoginState.LOGGED_IN:
+                self._logger.info("Login detected!")
+                return True
+
+            # If on a known login screen, try to help with re-login
+            if state in (
+                LoginState.INACTIVITY_LOGOUT,
+                LoginState.PLAY_NOW_SCREEN,
+                LoginState.LOGGED_IN_SCREEN,
+            ):
+                self._logger.debug("On login screen, attempting re-login...")
+                if self.perform_relogin():
+                    return True
+
+            # Wait before checking again
+            wait = self._rng.uniform(*self.config.retry_delay)
+            time.sleep(wait)
+
+        self._logger.warning("Login wait timeout after %.0fs", timeout)
+        return False
 
     def perform_relogin(self) -> bool:
         """Perform the full re-login sequence.

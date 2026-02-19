@@ -305,9 +305,13 @@ class BotController:
     def _main_loop(self) -> None:
         """Main bot loop."""
         while self._is_running and not self.emergency_stop.is_stopped():
-            # Check for logout and re-login if needed
-            if self.login_handler.is_logged_out():
-                self._handle_logout_recovery()
+            # Verify we're logged in before proceeding
+            if not self.login_handler.is_ready_to_run():
+                # Either logged out or unknown state - wait for login
+                self._logger.info("Not logged in, waiting for login...")
+                if not self.login_handler.wait_for_login(timeout=300.0):
+                    self._logger.error("Login timeout - stopping bot")
+                    break
                 continue
 
             # Check for session end
