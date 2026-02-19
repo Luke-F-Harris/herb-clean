@@ -689,8 +689,14 @@ class BezierMovement:
     ) -> list[float]:
         """Calculate delays between path points for natural movement.
 
-        Uses variable timing: slower at start/end, faster in middle.
-        Includes optional micro-pauses and speed bursts for human-like variation.
+        Uses continuous, gradual speed variation throughout the movement.
+        Speed is NEVER constant - always smoothly accelerating or decelerating.
+
+        The speed profile combines:
+        1. Base curve (slow-fast-slow pattern for natural mouse movement)
+        2. Medium frequency waves (gradual speed oscillations)
+        3. Low frequency drift (overall speed tendency shifts)
+        4. Per-point micro-variation (tiny random fluctuations)
 
         Args:
             path: List of path points
@@ -723,47 +729,12 @@ class BezierMovement:
                 self.config.micro_pause_duration[1]
             )
 
-        # Determine if we add a speed burst (sudden acceleration)
-        add_burst = (
-            self.config.speed_variation_enabled
-            and self._rng.random() < self.config.burst_chance
-        )
-        burst_start = -1
-        burst_end = -1
-
-        if add_burst and num_segments > 10:
-            # Place burst in middle portion
-            burst_length = int(num_segments * self.config.burst_duration_ratio)
-            burst_start = self._rng.integers(
-                int(num_segments * 0.25),
-                int(num_segments * 0.65)
-            )
-            burst_end = min(burst_start + burst_length, num_segments)
-
-        # Calculate speed factor range
-        min_factor = self.config.min_speed_factor
-        max_factor = self.config.max_speed_factor
-        factor_range = max_factor - min_factor
+        # Generate the continuous speed profile
+        speed_factors = self._generate_speed_profile(num_segments)
 
         for i in range(num_segments):
-            # Variable speed along path using sine curve
-            # Creates pronounced slow-fast-slow pattern
-            progress = i / num_segments
-
-            # Sinusoidal speed curve: slow at edges, fast in middle
-            # Map from [0, 1] sine output to [min_factor, max_factor]
-            sine_val = math.sin(progress * math.pi)
-            speed_factor = min_factor + factor_range * sine_val
-
-            # Apply speed burst if in burst region
-            if burst_start <= i < burst_end:
-                speed_factor *= self.config.burst_speed_multiplier
-
             base_delay = total_time / num_segments
-            delay = base_delay / speed_factor
-
-            # Add random variation (more pronounced)
-            delay *= self._rng.uniform(0.85, 1.15)
+            delay = base_delay / speed_factors[i]
 
             # Add micro-pause at designated point
             if i == micro_pause_index:
@@ -779,3 +750,111 @@ class BezierMovement:
             delays = [d * scale for d in delays]
 
         return delays
+
+    def _generate_speed_profile(self, num_segments: int) -> list[float]:
+        """Generate a continuous speed profile with gradual variations.
+
+        Creates organic speed changes that:
+        - Start slow, accelerate, then decelerate to stop
+        - Have continuous medium-frequency oscillations
+        - Include gradual drift in overall speed tendency
+        - Never maintain constant speed for more than 2-3 points
+
+        Args:
+            num_segments: Number of path segments
+
+        Returns:
+            List of speed factors (higher = faster movement)
+        """
+        if not self.config.speed_variation_enabled:
+            # Even without variation, use basic ease-in-out
+            return [
+                self.config.min_speed_factor +
+                (self.config.max_speed_factor - self.config.min_speed_factor) *
+                math.sin(i / num_segments * math.pi)
+                for i in range(num_segments)
+            ]
+
+        min_factor = self.config.min_speed_factor
+        max_factor = self.config.max_speed_factor
+        factor_range = max_factor - min_factor
+
+        # Random parameters for this movement's speed profile
+        # Each movement gets a unique "personality"
+
+        # Primary wave: slow-fast-slow with random asymmetry
+        # Asymmetry shifts the peak speed earlier or later in the movement
+        asymmetry = self._rng.uniform(-0.15, 0.15)  # Peak shift
+
+        # Secondary waves: medium frequency oscillations (2-4 cycles)
+        num_waves = self._rng.integers(2, 5)
+        wave_amplitudes = [self._rng.uniform(0.08, 0.20) for _ in range(num_waves)]
+        wave_phases = [self._rng.uniform(0, 2 * math.pi) for _ in range(num_waves)]
+        wave_frequencies = [self._rng.uniform(1.5, 4.0) for _ in range(num_waves)]
+
+        # Drift: gradual shift in overall speed (like hand fatigue/recovery)
+        drift_direction = self._rng.choice([-1, 1])
+        drift_strength = self._rng.uniform(0.0, 0.15)
+
+        # Generate smooth noise for micro-variation using cumulative random walk
+        noise = self._generate_smooth_noise(num_segments, smoothness=0.85)
+
+        speed_factors = []
+
+        for i in range(num_segments):
+            progress = i / num_segments
+
+            # 1. Base curve: asymmetric slow-fast-slow
+            # Uses a modified sine that can peak earlier or later
+            adjusted_progress = progress + asymmetry * math.sin(progress * math.pi)
+            adjusted_progress = max(0, min(1, adjusted_progress))
+            base = math.sin(adjusted_progress * math.pi)
+
+            # 2. Secondary waves: medium frequency oscillations
+            wave_sum = 0
+            for w in range(num_waves):
+                wave_sum += wave_amplitudes[w] * math.sin(
+                    wave_frequencies[w] * progress * math.pi + wave_phases[w]
+                )
+
+            # 3. Drift: gradual overall speed shift
+            drift = drift_direction * drift_strength * progress
+
+            # 4. Smooth noise: micro-variation
+            noise_contribution = noise[i] * 0.12
+
+            # Combine all components
+            combined = base + wave_sum + drift + noise_contribution
+
+            # Ensure we stay in valid range [0, 1] before scaling
+            combined = max(0.05, min(1.0, combined))
+
+            # Scale to actual speed factor range
+            speed_factor = min_factor + factor_range * combined
+
+            speed_factors.append(speed_factor)
+
+        return speed_factors
+
+    def _generate_smooth_noise(self, length: int, smoothness: float = 0.8) -> list[float]:
+        """Generate smooth random noise using exponential moving average.
+
+        Creates noise that varies gradually, not abruptly.
+
+        Args:
+            length: Number of noise values to generate
+            smoothness: How smooth (0 = random, 1 = very smooth)
+
+        Returns:
+            List of noise values in range [-1, 1]
+        """
+        noise = []
+        current = self._rng.uniform(-1, 1)
+
+        for _ in range(length):
+            # Blend current value with new random value
+            target = self._rng.uniform(-1, 1)
+            current = smoothness * current + (1 - smoothness) * target
+            noise.append(current)
+
+        return noise

@@ -1166,11 +1166,18 @@ class BotMovementVisualizer:
                 print(f"  Using fallback for {state.value}")
 
     def get_thickness_from_delay(self, delay: float) -> int:
-        """Calculate line thickness from delay (slower = thicker)."""
-        min_delay, max_delay = 0.003, 0.06
+        """Calculate line thickness from delay (slower = thicker).
+
+        More exaggerated thickness range to make speed variation clearly visible.
+        - Fast movement (low delay): thin line (1-2px)
+        - Slow movement (high delay): thick line (8-10px)
+        """
+        # Adjusted range to match new continuous speed variation
+        min_delay, max_delay = 0.002, 0.08
         normalized = (delay - min_delay) / (max_delay - min_delay)
         normalized = max(0, min(1, normalized))
-        return int(1 + normalized * 6)
+        # Increased thickness range: 1-10 pixels (was 1-7)
+        return int(1 + normalized * 9)
 
     def draw_path_with_alpha(self, p1: tuple[int, int], p2: tuple[int, int],
                              thickness: int, color: tuple[int, int, int], alpha: int = 100):

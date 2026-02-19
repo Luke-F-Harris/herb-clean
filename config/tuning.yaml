@@ -10,21 +10,19 @@ mouse:
   # Higher = faster mouse movements
   speed_range: [800, 1400]
 
-  # Speed variation during movement (makes acceleration/deceleration visible)
+  # Speed variation during movement (continuous, gradual changes)
+  # Speed is NEVER constant - always smoothly accelerating or decelerating
   speed_variation:
     enabled: true
     # Min/max speed multipliers during a single movement
-    # 0.2 = 5x slower, 1.5 = 1.5x faster than base
-    min_speed_factor: 0.2
-    max_speed_factor: 1.5
-    # Random speed bursts (sudden accelerations)
-    burst_chance: 0.15           # 15% chance per movement
-    burst_speed_multiplier: 1.8  # How much faster during burst
-    burst_duration_ratio: 0.15   # Portion of path affected by burst
-    # Micro-pauses during movement
+    # Creates the range for speed oscillations
+    # Lower min = more dramatic slowdowns, higher max = faster bursts
+    min_speed_factor: 0.15       # Slowest points are ~7x slower than average
+    max_speed_factor: 1.8        # Fastest points are 1.8x faster than average
+    # Micro-pauses during movement (brief hesitations)
     micro_pause:
-      chance: 0.25               # 25% chance per movement
-      duration: [0.03, 0.12]     # Duration range in seconds
+      chance: 0.20               # 20% chance per movement
+      duration: [0.02, 0.08]     # Duration range in seconds
 
 # =============================================================================
 # CLICK TIMING
