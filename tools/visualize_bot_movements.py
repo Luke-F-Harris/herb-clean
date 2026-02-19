@@ -49,6 +49,17 @@ TimingRandomizer = _timing_mod.TimingRandomizer
 ActionType = _timing_mod.ActionType
 TimingConfig = _timing_mod.TimingConfig
 
+# Try to load vision modules for position detection
+try:
+    _template_mod = _load_module_direct("template_matcher", _src_dir / "vision" / "template_matcher.py")
+    TemplateMatcher = _template_mod.TemplateMatcher
+    MatchResult = _template_mod.MatchResult
+    HAS_VISION = True
+except Exception:
+    HAS_VISION = False
+    TemplateMatcher = None
+    MatchResult = None
+
 
 class SimpleConfigManager:
     """Minimal config manager that loads YAML without complex dependencies."""
@@ -232,6 +243,9 @@ class BotMovementVisualizer:
         self.debug_targets: list[tuple[ClickTarget, str, tuple[int, int, int]]] = []
         self.debug_mode: bool = False
 
+        # Detected UI positions (populated by detect_ui_positions)
+        self.detected_positions: dict[str, tuple[int, int]] = {}
+
     def capture_screenshot(self) -> bool:
         """Capture screenshot from RuneLite.
 
@@ -303,6 +317,74 @@ class BotMovementVisualizer:
                     print(f"  Loaded {filename}")
 
         return screenshots
+
+    def detect_ui_positions(self, screenshots: dict[GameState, np.ndarray]) -> dict[str, tuple[int, int]]:
+        """Detect UI element positions from screenshots using template matching.
+
+        Uses the same detection code as the real bot.
+
+        Args:
+            screenshots: Dictionary of game state screenshots
+
+        Returns:
+            Dictionary mapping element names to (x, y) center positions
+        """
+        if not HAS_VISION:
+            print("  Vision module not available, using config positions")
+            return {}
+
+        positions = {}
+        templates_dir = Path(__file__).parent.parent / "templates"
+
+        if not templates_dir.exists():
+            print(f"  Templates directory not found: {templates_dir}")
+            return {}
+
+        # Initialize template matcher with same settings as real bot
+        vision_cfg = self.config.get("vision", {})
+        matcher = TemplateMatcher(
+            templates_dir=templates_dir,
+            confidence_threshold=vision_cfg.get("confidence_threshold", 0.55),
+            multi_scale=vision_cfg.get("multi_scale", True),
+            scale_range=tuple(vision_cfg.get("scale_range", [0.9, 1.1])),
+            scale_steps=vision_cfg.get("scale_steps", 3),
+        )
+
+        bank_cfg = self.config.get("bank", {}) or {}
+
+        # Detect bank booth from world_view screenshot
+        if GameState.WORLD_VIEW in screenshots:
+            img = screenshots[GameState.WORLD_VIEW]
+            booth_match = matcher.match(img, bank_cfg.get("booth_template", "bank_booth.png"))
+            if booth_match.found:
+                positions["bank_booth"] = (booth_match.center_x, booth_match.center_y)
+                print(f"  Detected bank booth at ({booth_match.center_x}, {booth_match.center_y})")
+
+        # Detect deposit, close, grimy herb from bank_open screenshot
+        if GameState.BANK_OPEN in screenshots:
+            img = screenshots[GameState.BANK_OPEN]
+
+            deposit_match = matcher.match(img, bank_cfg.get("deposit_all_template", "deposit_all.png"))
+            if deposit_match.found:
+                positions["deposit_button"] = (deposit_match.center_x, deposit_match.center_y)
+                print(f"  Detected deposit button at ({deposit_match.center_x}, {deposit_match.center_y})")
+
+            close_match = matcher.match(img, bank_cfg.get("close_button_template", "bank_close.png"))
+            if close_match.found:
+                positions["close_button"] = (close_match.center_x, close_match.center_y)
+                print(f"  Detected close button at ({close_match.center_x}, {close_match.center_y})")
+
+            # Try to detect grimy herbs
+            herbs_cfg = self.config.get("herbs", {}) or {}
+            grimy_templates = herbs_cfg.get("grimy", [])
+            for herb in grimy_templates:
+                herb_match = matcher.match_bottom_region(img, herb["template"], region_percentage=0.70)
+                if herb_match.found:
+                    positions["grimy_herb"] = (herb_match.center_x, herb_match.center_y)
+                    print(f"  Detected grimy herb at ({herb_match.center_x}, {herb_match.center_y})")
+                    break
+
+        return positions
 
     def create_demo_backgrounds(self) -> dict[GameState, np.ndarray]:
         """Create colored demo backgrounds for each game state.
@@ -496,15 +578,15 @@ class BotMovementVisualizer:
             has_clean_herbs: Whether inventory has clean herbs to deposit
             num_grimy_herbs: Number of grimy herbs to clean
         """
-        # Default positions if not provided (typical RuneLite layout)
+        # Use detected positions if available, otherwise fall back to defaults
         if bank_booth_pos is None:
-            bank_booth_pos = (400, 300)
+            bank_booth_pos = self.detected_positions.get("bank_booth", (400, 300))
         if deposit_button_pos is None:
-            deposit_button_pos = (420, 470)
+            deposit_button_pos = self.detected_positions.get("deposit_button", (420, 470))
         if grimy_herb_pos is None:
-            grimy_herb_pos = (300, 250)
+            grimy_herb_pos = self.detected_positions.get("grimy_herb", (300, 250))
         if close_button_pos is None:
-            close_button_pos = (510, 45)
+            close_button_pos = self.detected_positions.get("close_button", (510, 45))
         if inventory_slots is None:
             inv_cfg = self.config.window.get("inventory", {})
             inv_x = inv_cfg.get("x", 580)
@@ -1012,6 +1094,11 @@ def main():
     else:
         print("Running in demo mode (no RuneLite)")
         visualizer.create_demo_screenshot()
+
+    # Detect UI positions from screenshots using template matching
+    print("Detecting UI positions from screenshots...")
+    screenshots = visualizer.load_screenshots()
+    visualizer.detected_positions = visualizer.detect_ui_positions(screenshots)
 
     # Simulate full cycle
     print(f"Simulating herb cleaning cycle ({args.herbs} herbs)...")
