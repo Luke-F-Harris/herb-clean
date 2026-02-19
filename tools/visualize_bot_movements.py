@@ -228,6 +228,10 @@ class BotMovementVisualizer:
         self._completed_segments_cache: list[tuple[PathSegment, int]] = []
         self._last_cache_time: float = -1.0
 
+        # Debug: store click targets for visualization
+        self.debug_targets: list[tuple[ClickTarget, str, tuple[int, int, int]]] = []
+        self.debug_mode: bool = False
+
     def capture_screenshot(self) -> bool:
         """Capture screenshot from RuneLite.
 
@@ -359,6 +363,10 @@ class BotMovementVisualizer:
         Returns:
             (final_position, end_time)
         """
+        # Record target for debug visualization
+        if self.debug_mode:
+            self.debug_targets.append((target, label, color))
+
         # Calculate randomized click position (same as click_handler.calculate_click)
         click_result = self.click_handler.calculate_click(target)
         end = (click_result.x, click_result.y)
@@ -693,6 +701,28 @@ class BotMovementVisualizer:
             return
         radius = int(8 + age * 20)
         temp_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+
+    def draw_debug_targets(self):
+        """Draw rectangles around all click targets for debugging."""
+        for target, label, color in self.debug_targets:
+            # Draw target rectangle
+            rect = pygame.Rect(
+                target.center_x - target.width // 2,
+                target.center_y - target.height // 2,
+                target.width,
+                target.height
+            )
+            pygame.draw.rect(self.screen, color, rect, 2)
+
+            # Draw center crosshair
+            cx, cy = target.center_x, target.center_y
+            pygame.draw.line(self.screen, color, (cx - 5, cy), (cx + 5, cy), 1)
+            pygame.draw.line(self.screen, color, (cx, cy - 5), (cx, cy + 5), 1)
+
+            # Draw label
+            if label:
+                label_surface = self.font.render(label, True, color)
+                self.screen.blit(label_surface, (rect.x, rect.y - 18))
         pygame.draw.circle(temp_surface, (*self.COLOR_CLICK, alpha), pos, radius, 2)
         self.screen.blit(temp_surface, (0, 0))
 
@@ -908,6 +938,10 @@ class BotMovementVisualizer:
             background = self.backgrounds.get(game_state, self.background)
             self.screen.blit(background, (0, 0))
 
+            # Draw debug target rectangles if enabled
+            if self.debug_mode:
+                self.draw_debug_targets()
+
             # Clear alpha surface once, draw all segments, blit once
             self._alpha_surface.fill((0, 0, 0, 0))
 
@@ -954,6 +988,7 @@ def main():
     parser.add_argument("--demo", action="store_true", help="Run without RuneLite (demo mode)")
     parser.add_argument("--herbs", type=int, default=28, help="Number of herbs to clean (default: 28)")
     parser.add_argument("--with-deposit", action="store_true", help="Include deposit step (has clean herbs)")
+    parser.add_argument("--debug", action="store_true", help="Show click target rectangles for debugging positions")
     args = parser.parse_args()
 
     print("Bot Movement Visualizer")
@@ -963,6 +998,7 @@ def main():
 
     # Initialize visualizer with bot config
     visualizer = BotMovementVisualizer(args.config)
+    visualizer.debug_mode = args.debug
 
     # Capture screenshot
     if not args.demo:
