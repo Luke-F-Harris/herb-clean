@@ -114,7 +114,6 @@ traversal:
   #   col_ttb, col_btt, col_ttb_right, col_btt_right
   #   zigzag_horizontal, zigzag_vertical
   #   spiral_inward
-  #   random_shuffle
   #   weighted_nearest (prefers slots closer to mouse position)
   enabled_patterns:
     - row_ltr
@@ -122,7 +121,6 @@ traversal:
     - zigzag_horizontal
     - zigzag_vertical
     - col_ttb
-    - random_shuffle
     - weighted_nearest
 
   # Weights for pattern selection (higher = more likely)
@@ -133,5 +131,4 @@ traversal:
     zigzag_horizontal: 1.5
     zigzag_vertical: 1.0
     col_ttb: 1.0
-    random_shuffle: 1.5
     weighted_nearest: 2.0     # Most human-like, weighted highest
