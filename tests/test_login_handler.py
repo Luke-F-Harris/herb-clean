@@ -2,8 +2,8 @@
 """Test script for LoginHandler - manually test login detection and re-login.
 
 Run from osrs_herblore directory:
-    python test_login_handler.py           # Detection only (safe)
-    python test_login_handler.py --relogin # Actually perform re-login clicks
+    python tests/test_login_handler.py           # Detection only (safe)
+    python tests/test_login_handler.py --relogin # Actually perform re-login clicks
 """
 
 import argparse
@@ -11,8 +11,8 @@ import logging
 import sys
 from pathlib import Path
 
-# Add src to path
-src_path = Path(__file__).parent / "src"
+# Add src to path (go up from tests/ to osrs_herblore/, then into src/)
+src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
 from vision.screen_capture import ScreenCapture
