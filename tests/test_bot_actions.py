@@ -66,24 +66,22 @@ def draw_detection(image, position, label, color=(0, 255, 0), size=40):
 
 
 def draw_inventory_grid(image, inventory_detector, color=(0, 255, 0)):
-    """Draw inventory grid with slot numbers."""
+    """Draw inventory grid with slot numbers.
+
+    Note: Slot coordinates are window-relative since we draw on a window capture.
+    """
     for slot in inventory_detector.slots:
-        bounds = inventory_detector.screen.window_bounds
-        if bounds:
-            screen_x = bounds.x + slot.x
-            screen_y = bounds.y + slot.y
-        else:
-            screen_x = slot.x
-            screen_y = slot.y
+        # Use window-relative coordinates (slot.x, slot.y are already window-relative)
+        x, y = slot.x, slot.y
 
         # Draw slot center
-        cv2.circle(image, (screen_x, screen_y), 3, color, -1)
+        cv2.circle(image, (x, y), 3, color, -1)
 
         # Draw slot number
         cv2.putText(
             image,
             str(slot.index),
-            (screen_x - 10, screen_y + 5),
+            (x - 10, y + 5),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.3,
             color,
@@ -92,28 +90,25 @@ def draw_inventory_grid(image, inventory_detector, color=(0, 255, 0)):
 
 
 def draw_inventory_border(image, inventory_detector, color=(0, 255, 0)):
-    """Draw a colored border around the inventory area."""
-    x = inventory_detector.config.get('x')
-    y = inventory_detector.config.get('y')
+    """Draw a colored border around the inventory area.
+
+    Note: Coordinates are window-relative since we draw on a window capture.
+    """
+    x = inventory_detector.config.get('x', 0)
+    y = inventory_detector.config.get('y', 0)
     slot_width = inventory_detector.config.get('slot_width', 42)
     slot_height = inventory_detector.config.get('slot_height', 36)
+
+    if x is None or y is None:
+        return  # Can't draw without coordinates
 
     # Calculate inventory bounds (4 columns x 7 rows)
     width = slot_width * 4
     height = slot_height * 7
 
-    # Convert to screen coordinates if needed
-    bounds = inventory_detector.screen.window_bounds
-    if bounds:
-        screen_x = bounds.x + x
-        screen_y = bounds.y + y
-    else:
-        screen_x = x
-        screen_y = y
-
-    # Draw thick border
-    cv2.rectangle(image, (screen_x - 2, screen_y - 2),
-                  (screen_x + width + 2, screen_y + height + 2), color, 3)
+    # Draw thick border (coordinates are window-relative, matching the window capture)
+    cv2.rectangle(image, (x - 2, y - 2),
+                  (x + width + 2, y + height + 2), color, 3)
 
 
 def draw_clickable_box(image, match_result, label, color=(0, 255, 0)):
@@ -342,19 +337,16 @@ def main():
                 print("  Done.", flush=True)
 
             if booth_match and booth_match.found:
-                # Success! Convert to screen coordinates
+                # Calculate screen coordinates for display (but keep window-relative for drawing)
                 bounds = screen.window_bounds
-                if bounds:
-                    booth_match.x += bounds.x
-                    booth_match.y += bounds.y
-                    booth_match.center_x += bounds.x
-                    booth_match.center_y += bounds.y
+                screen_x = booth_match.center_x + (bounds.x if bounds else 0)
+                screen_y = booth_match.center_y + (bounds.y if bounds else 0)
 
-                print(f"✓ Bank booth detected at ({booth_match.center_x}, {booth_match.center_y})")
+                print(f"✓ Bank booth detected at ({screen_x}, {screen_y})")
                 print(f"  Clickable area: {booth_match.width}x{booth_match.height} pixels")
                 test_results["Bank Booth"] = "✓ PASS"
 
-                # Draw visualization
+                # Draw visualization (use window-relative coordinates)
                 test2_img = window_img.copy()
                 draw_inventory_grid(test2_img, inventory, (0, 255, 0))
                 draw_inventory_border(test2_img, inventory, (0, 255, 0))
@@ -440,27 +432,7 @@ def main():
             if herb_match.found:
                 break
 
-        # Convert to screen coordinates
-        bounds = screen.window_bounds
-        if deposit_match.found and bounds:
-            deposit_match.x += bounds.x
-            deposit_match.y += bounds.y
-            deposit_match.center_x += bounds.x
-            deposit_match.center_y += bounds.y
-
-        if close_match.found and bounds:
-            close_match.x += bounds.x
-            close_match.y += bounds.y
-            close_match.center_x += bounds.x
-            close_match.center_y += bounds.y
-
-        if herb_match and herb_match.found and bounds:
-            herb_match.x += bounds.x
-            herb_match.y += bounds.y
-            herb_match.center_x += bounds.x
-            herb_match.center_y += bounds.y
-
-        # Check if bank is open
+        # Check if bank is open (keep coordinates window-relative for drawing)
         is_bank_open = deposit_match.found or close_match.found
 
         if is_bank_open:
@@ -478,9 +450,16 @@ def main():
     if is_bank_open:
         print("✓ Bank interface detected as OPEN")
 
+        # Get bounds for screen coordinate display
+        bounds = screen.window_bounds
+        offset_x = bounds.x if bounds else 0
+        offset_y = bounds.y if bounds else 0
+
         # Test deposit button
         if deposit_match.found:
-            print(f"  ✓ Deposit button: ({deposit_match.center_x}, {deposit_match.center_y})")
+            screen_x = deposit_match.center_x + offset_x
+            screen_y = deposit_match.center_y + offset_y
+            print(f"  ✓ Deposit button: ({screen_x}, {screen_y})")
             print(f"    Clickable area: {deposit_match.width}x{deposit_match.height} pixels")
             test_results["Deposit Button"] = "✓ PASS"
         else:
@@ -490,14 +469,18 @@ def main():
 
         # Test close button
         if close_match.found:
-            print(f"  ✓ Close button: ({close_match.center_x}, {close_match.center_y})")
+            screen_x = close_match.center_x + offset_x
+            screen_y = close_match.center_y + offset_y
+            print(f"  ✓ Close button: ({screen_x}, {screen_y})")
             print(f"    Clickable area: {close_match.width}x{close_match.height} pixels")
         else:
             print("  ⚠ Close button not found (will use ESC key)")
 
         # Test grimy herb in bank
         if herb_match and herb_match.found:
-            print(f"  ✓ Grimy herbs in bank: ({herb_match.center_x}, {herb_match.center_y})")
+            screen_x = herb_match.center_x + offset_x
+            screen_y = herb_match.center_y + offset_y
+            print(f"  ✓ Grimy herbs in bank: ({screen_x}, {screen_y})")
             print(f"    Clickable area: {herb_match.width}x{herb_match.height} pixels")
             test_results["Grimy Herbs in Bank"] = "✓ PASS"
         else:
@@ -585,10 +568,9 @@ def main():
     draw_inventory_grid(test4_img, inventory, (0, 255, 0))
     draw_inventory_border(test4_img, inventory, (0, 255, 0))
 
-    # Draw click targets for each grimy herb
+    # Draw click targets for each grimy herb (use window-relative slot coordinates)
     for slot in grimy_slots:
-        screen_x, screen_y = inventory.get_slot_screen_coords(slot.index)
-        draw_detection(test4_img, (screen_x, screen_y), f"HERB{slot.index}", (0, 255, 0), 15)
+        draw_detection(test4_img, (slot.x, slot.y), f"HERB{slot.index}", (0, 255, 0), 15)
 
     # Show Test 4 result
     cv2.imshow("Test 4: Grimy Herb Click Targets", test4_img)
@@ -645,25 +627,7 @@ def main():
         if herb_match_final.found:
             break
 
-    # Convert to screen coordinates
-    bounds = screen.window_bounds
-    if booth_match.found and bounds:
-        booth_match.x += bounds.x
-        booth_match.y += bounds.y
-
-    if deposit_match_final.found and bounds:
-        deposit_match_final.x += bounds.x
-        deposit_match_final.y += bounds.y
-
-    if close_match_final.found and bounds:
-        close_match_final.x += bounds.x
-        close_match_final.y += bounds.y
-
-    if herb_match_final and herb_match_final.found and bounds:
-        herb_match_final.x += bounds.x
-        herb_match_final.y += bounds.y
-
-    # Draw ALL detections on one image
+    # Draw ALL detections on one image (use window-relative coordinates)
     draw_inventory_grid(final_img, inventory, (0, 255, 0))
     draw_inventory_border(final_img, inventory, (0, 255, 0))
 
@@ -678,10 +642,9 @@ def main():
     if herb_match_final and herb_match_final.found:
         draw_clickable_box(final_img, herb_match_final, "GRIMY HERBS (BANK)", (255, 0, 255))
 
-    # Draw inventory herb slots
+    # Draw inventory herb slots (use window-relative slot coordinates)
     for slot in grimy_slots:
-        screen_x, screen_y = inventory.get_slot_screen_coords(slot.index)
-        draw_detection(final_img, (screen_x, screen_y), f"H{slot.index}", (0, 255, 0), 15)
+        draw_detection(final_img, (slot.x, slot.y), f"H{slot.index}", (0, 255, 0), 15)
 
     # Save composite image
     output_path = Path(__file__).parent / "bot_actions_test_result.png"
