@@ -1,5 +1,6 @@
 """Inventory slot detection and classification."""
 
+import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
@@ -9,6 +10,7 @@ import numpy as np
 from .screen_capture import ScreenCapture
 from .template_matcher import TemplateMatcher
 from .inventory_auto_detect import InventoryAutoDetector, InventoryRegion
+from .inventory_traversal import InventoryTraversal, TraversalPattern
 
 
 class SlotState(Enum):
@@ -44,6 +46,7 @@ class InventoryDetector:
         grimy_templates: list[dict],
         auto_detect: bool = True,
         inventory_template_path: Optional[str] = None,
+        traversal_config: Optional[dict] = None,
     ):
         """Initialize inventory detector.
 
@@ -54,7 +57,9 @@ class InventoryDetector:
             grimy_templates: List of grimy herb template configs
             auto_detect: Enable auto-detection of inventory position
             inventory_template_path: Optional path to inventory template image
+            traversal_config: Optional traversal pattern configuration
         """
+        self._logger = logging.getLogger(__name__)
         self.screen = screen_capture
         self.matcher = template_matcher
         self.config = inventory_config
@@ -72,6 +77,17 @@ class InventoryDetector:
 
         # Pre-calculate slot positions (may be updated by auto-detection)
         self.slots: list[InventorySlot] = self._init_slots()
+
+        # Initialize traversal pattern generator
+        trav_cfg = traversal_config or {}
+        self._traversal = InventoryTraversal(
+            enabled_patterns=trav_cfg.get("enabled_patterns"),
+            pattern_weights=trav_cfg.get("pattern_weights"),
+        )
+        self._current_order: list[int] = []  # Current traversal order
+        self._order_index: int = 0  # Position in order
+        self._last_grimy_count: int = 0  # Detect inventory change
+        self._current_pattern: Optional[TraversalPattern] = None
 
     def _init_slots(self) -> list[InventorySlot]:
         """Initialize inventory slot positions."""
@@ -287,12 +303,90 @@ class InventoryDetector:
         """Get list of slots containing grimy herbs."""
         return [slot for slot in self.slots if slot.state == SlotState.GRIMY_HERB]
 
-    def get_next_grimy_slot(self) -> Optional[InventorySlot]:
-        """Get the first slot with a grimy herb."""
-        for slot in self.slots:
-            if slot.state == SlotState.GRIMY_HERB:
-                return slot
-        return None
+    def get_next_grimy_slot(
+        self,
+        mouse_pos: Optional[tuple[int, int]] = None,
+    ) -> Optional[InventorySlot]:
+        """Get next slot using current traversal pattern.
+
+        Args:
+            mouse_pos: Current mouse position (used for weighted_nearest pattern)
+
+        Returns:
+            Next grimy slot in traversal order, or None if no more
+        """
+        grimy = self.get_grimy_slots()
+        grimy_count = len(grimy)
+
+        # Detect inventory change (new herbs withdrawn or herbs cleaned)
+        # Regenerate traversal when count increases (new inventory)
+        if grimy_count > self._last_grimy_count or self._order_index >= len(self._current_order):
+            self._regenerate_traversal_order(grimy, mouse_pos)
+
+        self._last_grimy_count = grimy_count
+
+        # Return next slot in traversal order that still has a grimy herb
+        grimy_indices = {s.index for s in grimy}
+        while self._order_index < len(self._current_order):
+            idx = self._current_order[self._order_index]
+            self._order_index += 1
+            if idx in grimy_indices:
+                return self.slots[idx]
+
+        return None  # No more grimy slots
+
+    def _regenerate_traversal_order(
+        self,
+        grimy_slots: list,
+        mouse_pos: Optional[tuple[int, int]] = None,
+    ) -> None:
+        """Generate new traversal order for current inventory.
+
+        Args:
+            grimy_slots: List of slots containing grimy herbs
+            mouse_pos: Current mouse position for weighted_nearest
+        """
+        self._current_pattern = self._traversal.random_pattern()
+
+        # Build slot positions dict for weighted_nearest pattern
+        slot_positions = None
+        if self._current_pattern == TraversalPattern.WEIGHTED_NEAREST:
+            slot_positions = {}
+            bounds = self.screen.window_bounds
+            for slot in grimy_slots:
+                if bounds:
+                    slot_positions[slot.index] = (bounds.x + slot.x, bounds.y + slot.y)
+                else:
+                    slot_positions[slot.index] = (slot.x, slot.y)
+
+        # Generate full traversal order
+        full_order = self._traversal.generate_order(
+            self._current_pattern,
+            mouse_pos=mouse_pos,
+            slot_positions=slot_positions,
+        )
+
+        # Filter to only include indices that have grimy herbs
+        grimy_indices = {s.index for s in grimy_slots}
+        self._current_order = [i for i in full_order if i in grimy_indices]
+        self._order_index = 0
+
+        self._logger.debug(
+            "New traversal pattern: %s, order: %s",
+            self._current_pattern.value,
+            self._current_order[:5],
+        )
+
+    def reset_traversal(self) -> None:
+        """Reset traversal state for a new inventory."""
+        self._current_order = []
+        self._order_index = 0
+        self._last_grimy_count = 0
+        self._current_pattern = None
+
+    def get_current_pattern(self) -> Optional[TraversalPattern]:
+        """Get the current traversal pattern being used."""
+        return self._current_pattern
 
     def is_inventory_full(self) -> bool:
         """Check if inventory is full."""

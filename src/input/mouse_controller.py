@@ -47,6 +47,14 @@ class MouseController:
         """Get current mouse position."""
         return self._mouse.position
 
+    def get_position(self) -> tuple[int, int]:
+        """Get current mouse position.
+
+        Returns:
+            (x, y) tuple of current mouse coordinates
+        """
+        return self._mouse.position
+
     def set_stop_flag(self, stop: bool = True) -> None:
         """Set flag to stop current movement."""
         self._stop_flag = stop

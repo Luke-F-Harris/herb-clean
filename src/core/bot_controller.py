@@ -64,6 +64,7 @@ class BotController:
             grimy_templates=self.config.get("herbs.grimy", []),
             auto_detect=self.config.window.get("auto_detect_inventory", True),
             inventory_template_path=str(inventory_template_path) if inventory_template_path else None,
+            traversal_config=self.config.get_section("traversal"),
         )
         self.bank = BankDetector(
             screen_capture=self.screen,
@@ -441,6 +442,9 @@ class BotController:
 
         time.sleep(self.timing.get_post_action_delay(ActionType.CLOSE_BANK))
 
+        # Reset traversal for new inventory
+        self.inventory.reset_traversal()
+
         self.state_machine.start_cleaning()
 
     def _handle_cleaning(self) -> None:
@@ -454,24 +458,14 @@ class BotController:
             self.state_machine.start_banking()
             return
 
-        # Get next grimy herb slot
-        slot = self.inventory.get_next_grimy_slot()
+        # Get current mouse position for weighted_nearest pattern
+        mouse_pos = self.mouse.get_position()
+
+        # Get next grimy herb slot using randomized traversal pattern
+        slot = self.inventory.get_next_grimy_slot(mouse_pos=mouse_pos)
         if not slot:
             self.state_machine.start_banking()
             return
-
-        # Occasionally skip to the next herb (5% chance)
-        skip_chance = self.config.get("cleaning.skip_herb_chance", 0.05)
-        if self._rng.random() < skip_chance:
-            grimy_slots = self.inventory.get_grimy_slots()
-            if len(grimy_slots) > 1:
-                try:
-                    current_idx = grimy_slots.index(slot)
-                    if current_idx + 1 < len(grimy_slots):
-                        slot = grimy_slots[current_idx + 1]
-                        self._logger.debug(f"Skipped herb, now targeting slot {slot.index}")
-                except ValueError:
-                    pass  # Slot not in list, continue with original
 
         # Get screen coordinates
         screen_x, screen_y = self.inventory.get_slot_screen_coords(slot.index)

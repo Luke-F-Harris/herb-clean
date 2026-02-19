@@ -100,3 +100,38 @@ path:
     micro_correction:
       chance: 0.3
       magnitude: [2.0, 8.0]     # Pixels of deviation
+
+# =============================================================================
+# INVENTORY TRAVERSAL PATTERNS
+# =============================================================================
+# Randomize the order in which inventory slots are clicked for human-like behavior.
+# A new pattern is selected randomly each time a fresh inventory is withdrawn.
+
+traversal:
+  # Which patterns are enabled (randomly selected each inventory)
+  # Available patterns:
+  #   row_ltr, row_rtl, row_ltr_bottom, row_rtl_bottom
+  #   col_ttb, col_btt, col_ttb_right, col_btt_right
+  #   zigzag_horizontal, zigzag_vertical
+  #   spiral_inward
+  #   random_shuffle
+  #   weighted_nearest (prefers slots closer to mouse position)
+  enabled_patterns:
+    - row_ltr
+    - row_rtl
+    - zigzag_horizontal
+    - zigzag_vertical
+    - col_ttb
+    - random_shuffle
+    - weighted_nearest
+
+  # Weights for pattern selection (higher = more likely)
+  # Patterns not listed default to weight 1.0
+  pattern_weights:
+    row_ltr: 0.5              # Less common (too predictable)
+    row_rtl: 1.0
+    zigzag_horizontal: 1.5
+    zigzag_vertical: 1.0
+    col_ttb: 1.0
+    random_shuffle: 1.5
+    weighted_nearest: 2.0     # Most human-like, weighted highest
