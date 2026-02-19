@@ -27,6 +27,7 @@ from ..anti_detection.attention_drift import AttentionDrift, DriftConfig
 from ..anti_detection.skill_checker import SkillChecker, SkillCheckConfig
 from ..safety.emergency_stop import EmergencyStop
 from ..safety.session_tracker import SessionTracker, SessionConfig
+from ..safety.login_handler import LoginHandler, LoginConfig
 
 
 class BotController:
@@ -222,6 +223,14 @@ class BotController:
             )
         )
 
+        # Initialize login handler for re-login after inactivity logout
+        self.login_handler = LoginHandler(
+            screen=self.screen,
+            template_matcher=self.template_matcher,
+            mouse=self.mouse,
+            config=LoginConfig(),
+        )
+
         self._is_running = False
         self._rng = np.random.default_rng()
 
@@ -294,6 +303,11 @@ class BotController:
     def _main_loop(self) -> None:
         """Main bot loop."""
         while self._is_running and not self.emergency_stop.is_stopped():
+            # Check for logout and re-login if needed
+            if self.login_handler.is_logged_out():
+                self._handle_logout_recovery()
+                continue
+
             # Check for session end
             if self.session.should_end_session():
                 self._logger.info("Max session time reached")
@@ -717,4 +731,34 @@ class BotController:
             self.state_machine.recover()
         else:
             self._logger.error("Too many errors, stopping")
+            self._is_running = False
+
+    def _handle_logout_recovery(self) -> None:
+        """Handle logout detection and re-login.
+
+        After successful re-login, resets state to IDLE to start fresh
+        since inventory state and bank may have changed.
+        """
+        self._logger.warning("Logout detected! Attempting re-login...")
+
+        if self.login_handler.perform_relogin():
+            self._logger.info("Re-login successful, resetting to IDLE state")
+
+            # Reset state machine to idle
+            # First recover from any error state, then start fresh
+            if self.state_machine.current_state == self.state_machine.error:
+                self.state_machine.recover()
+
+            # Force back to idle by using internal state reset
+            # The state machine should handle this gracefully
+            self.state_machine._current_state = self.state_machine.idle
+
+            # Reset inventory detection since we may have been gone a while
+            self.inventory.reset_traversal()
+
+            # Small delay to let the game fully load
+            time.sleep(self._rng.uniform(1.0, 2.0))
+
+        else:
+            self._logger.error("Re-login failed! Stopping bot.")
             self._is_running = False
