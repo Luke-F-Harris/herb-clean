@@ -785,11 +785,29 @@ class BezierMovement:
                 self.config.micro_pause_duration[1]
             )
 
+        # Calculate distances between consecutive points
+        # This fixes the teleporting bug: easing clusters points unevenly,
+        # so we weight delays by actual distance to prevent large spatial
+        # gaps from being traversed too quickly
+        distances = []
+        for i in range(num_segments):
+            dx = path[i + 1][0] - path[i][0]
+            dy = path[i + 1][1] - path[i][1]
+            distances.append(math.sqrt(dx * dx + dy * dy))
+
+        total_distance = sum(distances)
+
         # Generate the continuous speed profile
         speed_factors = self._generate_speed_profile(num_segments)
 
         for i in range(num_segments):
-            base_delay = total_time / num_segments
+            # Base delay proportional to distance (fixes teleporting)
+            if total_distance > 0:
+                proportion = distances[i] / total_distance
+                base_delay = total_time * proportion
+            else:
+                base_delay = total_time / num_segments
+
             delay = base_delay / speed_factors[i]
 
             # Add micro-pause at designated point
