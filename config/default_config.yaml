@@ -24,8 +24,8 @@ timing:
   after_bank_close: 200
 mouse:
   speed_range:
-  - 200
-  - 400
+  - 800
+  - 1400
   overshoot_chance: 0.3
   overshoot_distance:
   - 5

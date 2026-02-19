@@ -12,7 +12,7 @@ import numpy as np
 class MovementConfig:
     """Configuration for mouse movement."""
 
-    speed_range: tuple[float, float] = (200, 400)  # pixels per second
+    speed_range: tuple[float, float] = (800, 1400)  # pixels per second
     overshoot_chance: float = 0.30
     overshoot_distance: tuple[int, int] = (5, 15)
     curve_variance: float = 0.3
