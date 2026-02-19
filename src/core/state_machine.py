@@ -104,10 +104,12 @@ class HerbCleaningStateMachine(StateMachine):
 
     def __init__(self):
         """Initialize state machine."""
-        super().__init__()
+        # Initialize attributes before super().__init__() because it triggers
+        # initial state entry which calls on_enter_state
         self._error_message: Optional[str] = None
         self._error_count = 0
         self._state_history: list[str] = []
+        super().__init__()
 
     def on_enter_state(self, state: State) -> None:
         """Called when entering any state."""
