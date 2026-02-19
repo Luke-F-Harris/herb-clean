@@ -248,8 +248,9 @@ class InventoryDetector:
     def _detect_grimy_herb_by_color(self, slot_region: np.ndarray) -> bool:
         """Detect grimy herbs using color-based detection.
 
-        Grimy herbs have distinctive green/brown colors in HSV space.
-        This is more robust to zoom/scale differences than template matching.
+        Grimy herbs have distinctive DARK green/brown colors in HSV space.
+        Clean herbs are brighter/more saturated, so we specifically look for
+        the darker, muddier colors that characterize grimy herbs.
 
         Args:
             slot_region: BGR image of inventory slot
@@ -262,30 +263,37 @@ class InventoryDetector:
         # Convert to HSV for better color detection
         hsv = cv2.cvtColor(slot_region, cv2.COLOR_BGR2HSV)
 
-        # Grimy herbs have greenish-brown colors
-        # Define HSV ranges for grimy herb detection
-        # Green range (for the leaf parts)
-        lower_green = np.array([25, 30, 30])
-        upper_green = np.array([85, 255, 255])
+        # Grimy herbs have DARK greenish-brown colors (lower value/brightness)
+        # Clean herbs are brighter/more saturated, so we exclude high values
+        # Dark/muted green range (grimy herb leaf parts - darker than clean herbs)
+        lower_dark_green = np.array([25, 30, 30])
+        upper_dark_green = np.array([85, 255, 150])  # Cap value at 150 to exclude bright greens
 
-        # Brown range (for the grimy parts)
-        lower_brown = np.array([10, 30, 30])
-        upper_brown = np.array([25, 255, 200])
+        # Brown range (grimy/dirty parts - distinctive to grimy herbs)
+        lower_brown = np.array([10, 40, 30])
+        upper_brown = np.array([25, 255, 180])
 
         # Create masks
-        mask_green = cv2.inRange(hsv, lower_green, upper_green)
+        mask_dark_green = cv2.inRange(hsv, lower_dark_green, upper_dark_green)
         mask_brown = cv2.inRange(hsv, lower_brown, upper_brown)
 
-        # Combine masks
-        combined_mask = cv2.bitwise_or(mask_green, mask_brown)
-
-        # Calculate percentage of pixels that match herb colors
-        herb_pixels = np.count_nonzero(combined_mask)
         total_pixels = slot_region.shape[0] * slot_region.shape[1]
-        herb_percentage = herb_pixels / total_pixels
 
-        # If >15% of pixels are herb-colored, likely a grimy herb
-        return herb_percentage > 0.15
+        # Calculate percentage of each color
+        dark_green_pixels = np.count_nonzero(mask_dark_green)
+        brown_pixels = np.count_nonzero(mask_brown)
+
+        dark_green_pct = dark_green_pixels / total_pixels
+        brown_pct = brown_pixels / total_pixels
+
+        # Grimy herbs should have BOTH dark green AND brown pixels
+        # Clean herbs are mostly bright green without brown
+        # Require at least 5% dark green AND 3% brown for grimy detection
+        has_dark_green = dark_green_pct > 0.05
+        has_brown = brown_pct > 0.03
+
+        # Must have both characteristics to be considered grimy
+        return has_dark_green and has_brown
 
     def count_grimy_herbs(self) -> int:
         """Count number of grimy herbs in inventory."""
