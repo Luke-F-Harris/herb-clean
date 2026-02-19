@@ -43,13 +43,34 @@ def _load_module_direct(module_name: str, file_path: Path, parent_package: str |
 # Load modules directly to avoid __init__.py import chains
 _src_dir = Path(__file__).parent.parent / "src"
 
+
+# Simple class for creating fake package modules
+class _FakeModule:
+    pass
+
+
+# Load utils module first (many modules depend on it)
+# Need to load submodules individually since __init__.py uses relative imports
+_random_utils_mod = _load_module_direct("utils.random_utils", _src_dir / "utils" / "random_utils.py")
+_math_utils_mod = _load_module_direct("utils.math_utils", _src_dir / "utils" / "math_utils.py")
+_stats_utils_mod = _load_module_direct("utils.stats_utils", _src_dir / "utils" / "stats_utils.py")
+_constants_mod = _load_module_direct("utils.constants", _src_dir / "utils" / "constants.py")
+
+# Create fake utils package module with all exports
+_utils_pkg = _FakeModule()
+_utils_pkg.create_rng = _random_utils_mod.create_rng
+_utils_pkg.clamp = _math_utils_mod.clamp
+_utils_pkg.clamp_point = _math_utils_mod.clamp_point
+_utils_pkg.distance = _math_utils_mod.distance
+_utils_pkg.gamma_delay = _stats_utils_mod.gamma_delay
+_utils_pkg.BANK_BG_COLOR_BGR = _constants_mod.BANK_BG_COLOR_BGR
+sys.modules["utils"] = _utils_pkg
+
 # Load organic_easing first (dependency of bezier_movement)
 _organic_easing_mod = _load_module_direct("organic_easing", _src_dir / "input" / "organic_easing.py")
 sys.modules["src.input.organic_easing"] = _organic_easing_mod
 
 # Create a fake input package module for relative imports
-class _FakeModule:
-    pass
 _input_pkg = _FakeModule()
 _input_pkg.organic_easing = _organic_easing_mod
 _input_pkg.OrganicEasing = _organic_easing_mod.OrganicEasing
