@@ -796,6 +796,7 @@ class BezierMovement:
             distances.append(math.sqrt(dx * dx + dy * dy))
 
         total_distance = sum(distances)
+        avg_distance = total_distance / num_segments if num_segments > 0 else 1
 
         # Generate the continuous speed profile
         speed_factors = self._generate_speed_profile(num_segments)
@@ -808,7 +809,20 @@ class BezierMovement:
             else:
                 base_delay = total_time / num_segments
 
-            delay = base_delay / speed_factors[i]
+            # Cap speed factor for large gaps to prevent teleporting
+            # When a gap is larger than average, limit how much we can speed up
+            # This ensures large spatial gaps always get proportionally longer delays
+            speed_factor = speed_factors[i]
+            if distances[i] > avg_distance:
+                # For gaps larger than average, cap speedup based on gap size
+                # Larger gaps = more restricted speedup (closer to 1.0)
+                gap_ratio = distances[i] / avg_distance
+                # At 2x average distance, max speedup is ~1.25x
+                # At 3x average distance, max speedup is ~1.17x
+                max_speedup = 1.0 + (self.config.max_speed_factor - 1.0) / gap_ratio
+                speed_factor = min(speed_factor, max_speedup)
+
+            delay = base_delay / speed_factor
 
             # Add micro-pause at designated point
             if i == micro_pause_index:
