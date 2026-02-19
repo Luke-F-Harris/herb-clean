@@ -1,15 +1,19 @@
 """Real-time animated visualization of bot mouse movements and keypresses.
 
-Captures a screenshot, simulates bot movements, and replays them with:
-- A ball following the path in real-time
-- Alpha-blended trail lines showing movement history
-- Keypress events appearing in bottom-left as they occur
+Uses the ACTUAL bot logic from BotController to simulate movements:
+- Same Bezier curves and movement config
+- Same click randomization
+- Same timing patterns
+- Same keypress behavior
+
+Captures a screenshot and replays the simulated cycle with a cursor ball.
 """
 
 import argparse
 import sys
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -19,9 +23,23 @@ import pygame
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from core.config_manager import ConfigManager
 from input.bezier_movement import BezierMovement, MovementConfig
-from input.click_handler import ClickHandler, ClickTarget
+from input.click_handler import ClickHandler, ClickConfig, ClickTarget
+from input.keyboard_controller import KeyboardController
 from vision.screen_capture import ScreenCapture
+from vision.template_matcher import TemplateMatcher
+from vision.inventory_detector import InventoryDetector
+from vision.bank_detector import BankDetector
+from anti_detection.timing_randomizer import TimingRandomizer, ActionType, TimingConfig
+
+
+class GameState(Enum):
+    """Game states corresponding to different background images."""
+    WORLD_VIEW = "world_view"          # Standing near bank, bank closed
+    BANK_OPEN = "bank_open"            # Bank interface open with grimy herbs
+    BANK_OPEN_CLEAN = "bank_open_clean"  # Bank open with clean herbs in inventory
+    INVENTORY_GRIMY = "inventory_grimy"  # Bank closed, grimy herbs in inventory
 
 
 @dataclass
@@ -30,8 +48,9 @@ class PathSegment:
     points: list[tuple[int, int]]
     delays: list[float]
     total_time: float
-    color: tuple[int, int, int] = (0, 255, 0)  # RGB
+    color: tuple[int, int, int] = (0, 255, 0)
     is_overshoot: bool = False
+    label: str = ""
 
 
 @dataclass
@@ -39,7 +58,7 @@ class KeypressEvent:
     """A keypress event to display."""
     key_name: str
     duration_ms: float
-    timestamp: float  # When to show this event
+    timestamp: float
     index: int
 
 
@@ -49,46 +68,86 @@ class ClickEvent:
     x: int
     y: int
     timestamp: float
+    duration: float
 
 
 @dataclass
 class SimulatedAction:
     """An action in the simulation timeline."""
-    action_type: str  # "move", "keypress", "click"
+    action_type: str  # "move", "keypress", "click", "delay"
     start_time: float
     end_time: float
     data: dict = field(default_factory=dict)
+    state_after: Optional[GameState] = None  # Background to show after this action
 
 
-class MovementVisualizer:
-    """Real-time animated visualization of bot movements."""
+class BotMovementVisualizer:
+    """Real-time visualization using actual bot logic."""
 
     # Colors (RGB for pygame)
-    COLOR_BANK_PATH = (0, 255, 100)      # Green - movement to bank
-    COLOR_INVENTORY_PATH = (100, 255, 255)  # Cyan - movement to inventory
+    COLOR_BANK_BOOTH = (255, 165, 0)     # Orange - click bank booth
+    COLOR_DEPOSIT = (255, 100, 100)      # Light red - deposit button
+    COLOR_WITHDRAW = (0, 255, 100)       # Green - withdraw herbs
+    COLOR_CLOSE_BANK = (255, 50, 50)     # Red - close bank
+    COLOR_INVENTORY = (100, 255, 255)    # Cyan - inventory clicks
     COLOR_OVERSHOOT = (255, 100, 255)    # Magenta - overshoot correction
     COLOR_CLICK = (255, 255, 100)        # Yellow - click markers
     COLOR_CURSOR = (255, 50, 50)         # Red - cursor ball
     COLOR_TEXT = (255, 255, 255)         # White - text
-    COLOR_TEXT_BG = (0, 0, 0)            # Black - text background
 
-    def __init__(self, screenshot: np.ndarray, window_offset: tuple[int, int] = (0, 0)):
-        """Initialize visualizer.
+    def __init__(self, config_path: Optional[str] = None):
+        """Initialize visualizer using bot config.
 
         Args:
-            screenshot: BGR numpy array of the game screenshot
-            window_offset: (x, y) offset of game window on screen
+            config_path: Path to bot config file
         """
-        self.screenshot = screenshot
-        self.window_offset = window_offset
-        self.height, self.width = screenshot.shape[:2]
+        # Load bot configuration
+        self.config = ConfigManager(config_path)
 
-        # Initialize movement generators
-        self.bezier = BezierMovement(MovementConfig(
-            overshoot_chance=0.35,
-            overshoot_distance=(8, 18),
-        ))
-        self.click_handler = ClickHandler()
+        # Initialize same components as BotController
+        self.screen_capture = ScreenCapture(self.config.window.get("title", "RuneLite"))
+
+        # Movement config from bot settings
+        mouse_cfg = self.config.mouse
+        self.movement_config = MovementConfig(
+            speed_range=tuple(mouse_cfg.get("speed_range", [200, 400])),
+            overshoot_chance=mouse_cfg.get("overshoot_chance", 0.30),
+            overshoot_distance=tuple(mouse_cfg.get("overshoot_distance", [5, 15])),
+            curve_variance=mouse_cfg.get("curve_variance", 0.3),
+        )
+        self.bezier = BezierMovement(self.movement_config)
+
+        # Click config from bot settings
+        self.click_config = ClickConfig(
+            position_sigma_ratio=self.config.click.get("position_sigma_ratio", 6),
+            duration_mean=self.config.click.get("duration_mean", 100),
+            duration_min=self.config.click.get("duration_min", 50),
+            duration_max=self.config.click.get("duration_max", 200),
+        )
+        self.click_handler = ClickHandler(self.click_config)
+
+        # Timing config from bot settings
+        timing_cfg = self.config.timing
+        self.timing = TimingRandomizer(
+            config=TimingConfig(
+                click_herb_mean=timing_cfg.get("click_herb_mean", 600),
+                click_herb_std=timing_cfg.get("click_herb_std", 150),
+                click_herb_min=timing_cfg.get("click_herb_min", 350),
+                click_herb_max=timing_cfg.get("click_herb_max", 1200),
+                bank_action_mean=timing_cfg.get("bank_action_mean", 800),
+                bank_action_std=timing_cfg.get("bank_action_std", 200),
+                bank_action_min=timing_cfg.get("bank_action_min", 500),
+                bank_action_max=timing_cfg.get("bank_action_max", 1500),
+                after_bank_open=timing_cfg.get("after_bank_open", 400),
+                after_deposit=timing_cfg.get("after_deposit", 300),
+                after_withdraw=timing_cfg.get("after_withdraw", 300),
+                after_bank_close=timing_cfg.get("after_bank_close", 200),
+            )
+        )
+
+        # Bank ESC chance from config
+        self.esc_chance = self.config.get("bank.esc_chance", 0.70)
+
         self._rng = np.random.default_rng()
 
         # Simulation state
@@ -97,56 +156,149 @@ class MovementVisualizer:
         self.click_events: list[ClickEvent] = []
         self.actions: list[SimulatedAction] = []
 
-        # Playback state
-        self.current_time = 0.0
-        self.cursor_pos = (self.width // 2, self.height // 2)
-        self.drawn_path_points: list[tuple[tuple[int, int], tuple[int, int], int, tuple[int, int, int]]] = []
-        self.visible_keypresses: list[KeypressEvent] = []
-        self.visible_clicks: list[ClickEvent] = []
+        # Screenshot and window info
+        self.screenshot: Optional[np.ndarray] = None
+        self.window_offset = (0, 0)
+        self.width = 800
+        self.height = 600
 
-        # Pygame setup
-        pygame.init()
-        pygame.display.set_caption("Bot Movement Visualization")
-        self.screen = pygame.display.set_mode((self.width, self.height))
-        self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("monospace", 16)
-        self.font_large = pygame.font.SysFont("monospace", 20, bold=True)
+        # Pygame state
+        self.screen: Optional[pygame.Surface] = None
+        self.background: Optional[pygame.Surface] = None
+        self.backgrounds: dict[GameState, pygame.Surface] = {}
+        self.current_state: GameState = GameState.WORLD_VIEW
+        self.state_transitions: list[tuple[float, GameState]] = []
+        self.clock: Optional[pygame.time.Clock] = None
+        self.font: Optional[pygame.font.Font] = None
 
-        # Convert screenshot to pygame surface (BGR to RGB)
-        screenshot_rgb = screenshot[:, :, ::-1].copy()
-        self.background = pygame.surfarray.make_surface(screenshot_rgb.swapaxes(0, 1))
+    def capture_screenshot(self) -> bool:
+        """Capture screenshot from RuneLite.
 
-    def simulate_click_movement(
+        Returns:
+            True if successful
+        """
+        bounds = self.screen_capture.find_window()
+        if bounds is None:
+            return False
+
+        self.screenshot = self.screen_capture.capture_window()
+        if self.screenshot is None:
+            return False
+
+        self.window_offset = (bounds.x, bounds.y)
+        self.height, self.width = self.screenshot.shape[:2]
+        return True
+
+    def create_demo_screenshot(self):
+        """Create a demo screenshot for testing without RuneLite."""
+        self.screenshot = np.zeros((600, 800, 3), dtype=np.uint8)
+        self.screenshot[:] = (40, 40, 50)
+        self.window_offset = (0, 0)
+        self.height, self.width = 600, 800
+
+    def load_screenshots(self) -> dict[GameState, np.ndarray]:
+        """Load state-specific screenshots from viz_screenshots directory.
+
+        Returns:
+            Dictionary mapping GameState to numpy arrays (BGR format)
+        """
+        screenshots_dir = Path(__file__).parent / "viz_screenshots"
+        screenshots: dict[GameState, np.ndarray] = {}
+
+        # Mapping of state to filename
+        state_files = {
+            GameState.WORLD_VIEW: "world_view.png",
+            GameState.BANK_OPEN: "bank_open.png",
+            GameState.BANK_OPEN_CLEAN: "bank_open_clean.png",
+            GameState.INVENTORY_GRIMY: "inventory_grimy.png",
+        }
+
+        import cv2
+
+        for state, filename in state_files.items():
+            filepath = screenshots_dir / filename
+            if filepath.exists():
+                img = cv2.imread(str(filepath))
+                if img is not None:
+                    screenshots[state] = img
+                    print(f"  Loaded {filename}")
+
+        return screenshots
+
+    def create_demo_backgrounds(self) -> dict[GameState, np.ndarray]:
+        """Create colored demo backgrounds for each game state.
+
+        Returns:
+            Dictionary mapping GameState to numpy arrays (BGR format)
+        """
+        backgrounds: dict[GameState, np.ndarray] = {}
+
+        # Color scheme for each state (BGR format for OpenCV/numpy)
+        state_colors = {
+            GameState.WORLD_VIEW: (50, 80, 40),      # Dark green - outdoor
+            GameState.BANK_OPEN: (40, 50, 70),       # Dark brown - bank interface
+            GameState.BANK_OPEN_CLEAN: (50, 60, 80), # Slightly lighter brown
+            GameState.INVENTORY_GRIMY: (70, 50, 40), # Dark blue - inventory focus
+        }
+
+        for state, color in state_colors.items():
+            bg = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+            bg[:] = color
+            backgrounds[state] = bg
+
+        return backgrounds
+
+    def _add_state_transition(self, timestamp: float, state: GameState):
+        """Record a state transition at the given timestamp."""
+        self.state_transitions.append((timestamp, state))
+
+    def get_game_state_at_time(self, t: float) -> GameState:
+        """Get the game state at a given simulation time.
+
+        Args:
+            t: Current simulation time in seconds
+
+        Returns:
+            The GameState that should be displayed at time t
+        """
+        current = GameState.WORLD_VIEW
+        for timestamp, state in self.state_transitions:
+            if t >= timestamp:
+                current = state
+            else:
+                break
+        return current
+
+    def _simulate_move_to_target(
         self,
         start: tuple[int, int],
         target: ClickTarget,
         color: tuple[int, int, int],
         start_time: float,
-    ) -> tuple[PathSegment, float]:
-        """Simulate mouse movement to a click target.
+        label: str = "",
+    ) -> tuple[tuple[int, int], float]:
+        """Simulate mouse movement to target using bot logic.
 
-        Args:
-            start: Starting position
-            target: Click target
-            color: Path color
-            start_time: When this movement starts
+        This replicates MouseController.click_at_target() behavior.
 
         Returns:
-            (PathSegment, end_time)
+            (final_position, end_time)
         """
-        # Calculate randomized click position
+        # Calculate randomized click position (same as click_handler.calculate_click)
         click_result = self.click_handler.calculate_click(target)
-        end = (click_result.x - self.window_offset[0], click_result.y - self.window_offset[1])
+        end_x = click_result.x - self.window_offset[0]
+        end_y = click_result.y - self.window_offset[1]
+        end = (end_x, end_y)
 
-        # Generate path
+        # Generate Bezier path (same as bezier.generate_path)
         path = self.bezier.generate_path(start, end, num_points=60)
 
-        # Calculate timing
+        # Calculate timing (same as bezier.calculate_movement_time + get_point_delays)
         total_time = self.bezier.calculate_movement_time(start, end)
         delays = self.bezier.get_point_delays(path, total_time)
 
-        # Check if this path has overshoot (path goes past end point then returns)
-        is_overshoot = len(path) > 30 and self._detect_overshoot(path, end)
+        # Detect overshoot
+        is_overshoot = self._detect_overshoot(path, end)
 
         segment = PathSegment(
             points=path,
@@ -154,21 +306,25 @@ class MovementVisualizer:
             total_time=total_time,
             color=color,
             is_overshoot=is_overshoot,
+            label=label,
         )
+        self.path_segments.append(segment)
 
-        # Store action
+        # Record move action
         self.actions.append(SimulatedAction(
             action_type="move",
             start_time=start_time,
             end_time=start_time + total_time,
-            data={"segment": segment, "path_index": len(self.path_segments)},
+            data={"segment": segment},
         ))
 
-        self.path_segments.append(segment)
-
-        # Add click event at end
+        # Record click at end
         click_time = start_time + total_time
-        self.click_events.append(ClickEvent(x=end[0], y=end[1], timestamp=click_time))
+        self.click_events.append(ClickEvent(
+            x=end[0], y=end[1],
+            timestamp=click_time,
+            duration=click_result.duration,
+        ))
         self.actions.append(SimulatedAction(
             action_type="click",
             start_time=click_time,
@@ -176,25 +332,24 @@ class MovementVisualizer:
             data={"x": end[0], "y": end[1]},
         ))
 
-        return segment, click_time + click_result.duration
+        return end, click_time + click_result.duration
 
-    def simulate_keypress(self, key_name: str, start_time: float) -> float:
-        """Simulate a keypress event.
-
-        Args:
-            key_name: Name of key (e.g., "Escape", "1")
-            start_time: When keypress starts
+    def _simulate_keypress(self, key_name: str, start_time: float) -> float:
+        """Simulate keypress using KeyboardController timing.
 
         Returns:
             End time after keypress
         """
-        # Random duration similar to KeyboardController._get_key_duration()
-        duration_ms = self._rng.gamma(2.0, 30) * 2
-        duration_ms = max(30, min(200, duration_ms))
-
-        # Add pre-key delay (hand movement to keyboard)
+        # Pre-key delay (hand movement from mouse to keyboard)
+        # Replicates KeyboardController._get_pre_key_delay()
         pre_delay = self._rng.gamma(2.0, 0.08) + 0.15
         pre_delay = min(0.40, pre_delay)
+
+        # Key hold duration
+        # Replicates KeyboardController._get_key_duration()
+        duration = self._rng.gamma(2.0, 0.03)
+        duration = max(0.03, min(0.20, duration))
+        duration_ms = duration * 1000
 
         event = KeypressEvent(
             key_name=key_name,
@@ -202,187 +357,372 @@ class MovementVisualizer:
             timestamp=start_time + pre_delay,
             index=len(self.keypress_events) + 1,
         )
-
         self.keypress_events.append(event)
+
         self.actions.append(SimulatedAction(
             action_type="keypress",
             start_time=start_time,
-            end_time=start_time + pre_delay + (duration_ms / 1000),
+            end_time=start_time + pre_delay + duration,
             data={"event": event},
         ))
 
-        return start_time + pre_delay + (duration_ms / 1000)
+        return start_time + pre_delay + duration
+
+    def _add_delay(self, start_time: float, delay: float) -> float:
+        """Add a delay action."""
+        self.actions.append(SimulatedAction(
+            action_type="delay",
+            start_time=start_time,
+            end_time=start_time + delay,
+            data={},
+        ))
+        return start_time + delay
 
     def _detect_overshoot(self, path: list[tuple[int, int]], end: tuple[int, int]) -> bool:
-        """Detect if path overshoots the target."""
+        """Detect if path has overshoot correction."""
         if len(path) < 10:
             return False
-
-        # Check if any point in last third is further from end than the end point itself
         check_start = len(path) * 2 // 3
         for i in range(check_start, len(path) - 1):
             px, py = path[i]
-            dist_to_end = ((px - end[0])**2 + (py - end[1])**2)**0.5
-            if dist_to_end > 10:  # More than 10 pixels from target
+            dist = ((px - end[0])**2 + (py - end[1])**2)**0.5
+            if dist > 10:
                 return True
         return False
 
-    def generate_herb_cleaning_cycle(self, herb_bank_pos: tuple[int, int], inventory_slots: list[tuple[int, int]]):
-        """Generate a full herb cleaning cycle simulation.
+    def simulate_full_cycle(
+        self,
+        bank_booth_pos: Optional[tuple[int, int]] = None,
+        deposit_button_pos: Optional[tuple[int, int]] = None,
+        grimy_herb_pos: Optional[tuple[int, int]] = None,
+        close_button_pos: Optional[tuple[int, int]] = None,
+        inventory_slots: Optional[list[tuple[int, int]]] = None,
+        has_clean_herbs: bool = False,
+        num_grimy_herbs: int = 28,
+    ):
+        """Simulate a full herb cleaning cycle using bot logic.
+
+        This replicates the BotController state machine:
+        IDLE -> BANKING_OPEN -> BANKING_DEPOSIT -> BANKING_WITHDRAW ->
+        BANKING_CLOSE -> CLEANING -> BANKING_OPEN ...
 
         Args:
-            herb_bank_pos: Position of herb in bank (window-relative)
-            inventory_slots: List of inventory slot centers (window-relative)
+            bank_booth_pos: Position of bank booth (window-relative)
+            deposit_button_pos: Position of deposit button
+            grimy_herb_pos: Position of grimy herbs in bank
+            close_button_pos: Position of bank close button
+            inventory_slots: List of inventory slot positions
+            has_clean_herbs: Whether inventory has clean herbs to deposit
+            num_grimy_herbs: Number of grimy herbs to clean
         """
-        current_time = 0.5  # Start after brief pause
+        # Default positions if not provided (typical RuneLite layout)
+        if bank_booth_pos is None:
+            bank_booth_pos = (400, 300)
+        if deposit_button_pos is None:
+            deposit_button_pos = (420, 470)
+        if grimy_herb_pos is None:
+            grimy_herb_pos = (300, 250)
+        if close_button_pos is None:
+            close_button_pos = (510, 45)
+        if inventory_slots is None:
+            inv_cfg = self.config.window.get("inventory", {})
+            inv_x = inv_cfg.get("x", 580)
+            inv_y = inv_cfg.get("y", 230)
+            slot_w = inv_cfg.get("slot_width", 42)
+            slot_h = inv_cfg.get("slot_height", 36)
+            inventory_slots = []
+            for row in range(7):
+                for col in range(4):
+                    x = inv_x + col * slot_w + slot_w // 2
+                    y = inv_y + row * slot_h + slot_h // 2
+                    inventory_slots.append((x, y))
 
-        # Start position (center of screen roughly)
+        current_time = 0.3  # Initial pause
         current_pos = (self.width // 2, self.height // 2)
 
-        # 1. Click herb in bank (withdraw)
+        # === STATE: BANKING_OPEN ===
+        # Click bank booth (replicates _handle_banking_open)
+        booth_target = ClickTarget(
+            center_x=bank_booth_pos[0] + self.window_offset[0],
+            center_y=bank_booth_pos[1] + self.window_offset[1],
+            width=40, height=40,
+        )
+        current_pos, current_time = self._simulate_move_to_target(
+            current_pos, booth_target, self.COLOR_BANK_BOOTH, current_time,
+            label="Click bank booth"
+        )
+
+        # Wait for bank to open (timing.get_delay(ActionType.OPEN_BANK))
+        bank_open_delay = self.timing.get_delay(ActionType.OPEN_BANK)
+        current_time = self._add_delay(current_time, bank_open_delay)
+
+        # State transition: bank is now open
+        if has_clean_herbs:
+            self._add_state_transition(current_time, GameState.BANK_OPEN_CLEAN)
+        else:
+            self._add_state_transition(current_time, GameState.BANK_OPEN)
+
+        # Post-open delay
+        post_open_delay = self.timing.get_post_action_delay(ActionType.OPEN_BANK)
+        current_time = self._add_delay(current_time, post_open_delay)
+
+        # === STATE: BANKING_DEPOSIT (if has clean herbs) ===
+        if has_clean_herbs:
+            deposit_target = ClickTarget(
+                center_x=deposit_button_pos[0] + self.window_offset[0],
+                center_y=deposit_button_pos[1] + self.window_offset[1],
+                width=35, height=25,
+            )
+            current_pos, current_time = self._simulate_move_to_target(
+                current_pos, deposit_target, self.COLOR_DEPOSIT, current_time,
+                label="Deposit herbs"
+            )
+            post_deposit_delay = self.timing.get_post_action_delay(ActionType.DEPOSIT)
+            current_time = self._add_delay(current_time, post_deposit_delay)
+
+            # State transition: inventory now empty, showing normal bank view
+            self._add_state_transition(current_time, GameState.BANK_OPEN)
+
+        # === STATE: BANKING_WITHDRAW ===
         herb_target = ClickTarget(
-            center_x=herb_bank_pos[0] + self.window_offset[0],
-            center_y=herb_bank_pos[1] + self.window_offset[1],
-            width=32,
-            height=32,
+            center_x=grimy_herb_pos[0] + self.window_offset[0],
+            center_y=grimy_herb_pos[1] + self.window_offset[1],
+            width=32, height=32,
         )
-        segment, current_time = self.simulate_click_movement(
-            current_pos, herb_target, self.COLOR_BANK_PATH, current_time
+        current_pos, current_time = self._simulate_move_to_target(
+            current_pos, herb_target, self.COLOR_WITHDRAW, current_time,
+            label="Withdraw grimy herbs"
         )
-        current_pos = segment.points[-1]
+        post_withdraw_delay = self.timing.get_post_action_delay(ActionType.WITHDRAW)
+        current_time = self._add_delay(current_time, post_withdraw_delay)
 
-        # Small delay after click
-        current_time += self._rng.uniform(0.1, 0.2)
+        # === STATE: BANKING_CLOSE ===
+        # Random choice: ESC (70%) or click close button (30%)
+        use_esc = self._rng.random() < self.esc_chance
 
-        # 2. Press Escape (close bank)
-        current_time = self.simulate_keypress("Escape", current_time)
-        current_time += self._rng.uniform(0.2, 0.4)  # Wait for bank to close
+        if use_esc:
+            current_time = self._simulate_keypress("Escape", current_time)
+        else:
+            close_target = ClickTarget(
+                center_x=close_button_pos[0] + self.window_offset[0],
+                center_y=close_button_pos[1] + self.window_offset[1],
+                width=21, height=21,
+            )
+            current_pos, current_time = self._simulate_move_to_target(
+                current_pos, close_target, self.COLOR_CLOSE_BANK, current_time,
+                label="Close bank"
+            )
 
-        # 3. Click inventory slots to clean herbs
-        for i, slot_pos in enumerate(inventory_slots[:4]):  # First 4 slots
+        post_close_delay = self.timing.get_post_action_delay(ActionType.CLOSE_BANK)
+        current_time = self._add_delay(current_time, post_close_delay)
+
+        # State transition: bank is closed, inventory has grimy herbs
+        self._add_state_transition(current_time, GameState.INVENTORY_GRIMY)
+
+        # === STATE: CLEANING ===
+        # Click each grimy herb in inventory
+        herbs_to_clean = min(num_grimy_herbs, len(inventory_slots))
+        for i in range(herbs_to_clean):
+            slot_pos = inventory_slots[i]
+            inv_cfg = self.config.window.get("inventory", {})
+
             slot_target = ClickTarget(
                 center_x=slot_pos[0] + self.window_offset[0],
                 center_y=slot_pos[1] + self.window_offset[1],
-                width=36,
-                height=32,
+                width=inv_cfg.get("slot_width", 42),
+                height=inv_cfg.get("slot_height", 36),
             )
-            segment, current_time = self.simulate_click_movement(
-                current_pos, slot_target, self.COLOR_INVENTORY_PATH, current_time
+            current_pos, current_time = self._simulate_move_to_target(
+                current_pos, slot_target, self.COLOR_INVENTORY, current_time,
+                label=f"Clean herb {i+1}"
             )
-            current_pos = segment.points[-1]
 
-            # Small delay between clicks
-            current_time += self._rng.uniform(0.05, 0.15)
+            # Delay between herb clicks (timing.get_delay(ActionType.CLICK_HERB))
+            herb_delay = self.timing.get_delay(ActionType.CLICK_HERB)
+            current_time = self._add_delay(current_time, herb_delay)
+
+    def init_pygame(self):
+        """Initialize pygame display."""
+        pygame.init()
+        pygame.display.set_caption("Bot Movement Visualization (Using Actual Bot Logic)")
+        self.screen = pygame.display.set_mode((self.width, self.height))
+        self.clock = pygame.time.Clock()
+        self.font = pygame.font.SysFont("monospace", 16)
+        self.font_large = pygame.font.SysFont("monospace", 20, bold=True)
+
+        # Convert screenshot to pygame surface (BGR to RGB) for fallback
+        screenshot_rgb = self.screenshot[:, :, ::-1].copy()
+        self.background = pygame.surfarray.make_surface(screenshot_rgb.swapaxes(0, 1))
+
+        # Load state-specific backgrounds
+        self._load_state_backgrounds()
+
+    def _load_state_backgrounds(self):
+        """Load or create state-specific background images."""
+        print("Loading state backgrounds...")
+
+        # Try to load real screenshots
+        screenshots = self.load_screenshots()
+
+        # Create demo backgrounds for any missing states
+        demo_backgrounds = self.create_demo_backgrounds()
+
+        # Merge: use real screenshots where available, demo otherwise
+        for state in GameState:
+            if state in screenshots:
+                # Convert loaded screenshot (BGR) to pygame surface
+                img = screenshots[state]
+                # Resize if needed to match window size
+                if img.shape[0] != self.height or img.shape[1] != self.width:
+                    import cv2
+                    img = cv2.resize(img, (self.width, self.height))
+                img_rgb = img[:, :, ::-1].copy()
+                self.backgrounds[state] = pygame.surfarray.make_surface(img_rgb.swapaxes(0, 1))
+            elif state in demo_backgrounds:
+                # Use demo background
+                img = demo_backgrounds[state]
+                img_rgb = img[:, :, ::-1].copy()
+                self.backgrounds[state] = pygame.surfarray.make_surface(img_rgb.swapaxes(0, 1))
+                print(f"  Using demo background for {state.value}")
+            else:
+                # Fallback to main screenshot
+                self.backgrounds[state] = self.background
+                print(f"  Using fallback for {state.value}")
 
     def get_thickness_from_delay(self, delay: float) -> int:
         """Calculate line thickness from delay (slower = thicker)."""
         min_delay, max_delay = 0.003, 0.06
         normalized = (delay - min_delay) / (max_delay - min_delay)
         normalized = max(0, min(1, normalized))
-        return int(1 + normalized * 6)  # Range: 1-7 pixels
+        return int(1 + normalized * 6)
 
-    def draw_path_with_alpha(self, surface: pygame.Surface, p1: tuple[int, int], p2: tuple[int, int],
+    def draw_path_with_alpha(self, p1: tuple[int, int], p2: tuple[int, int],
                              thickness: int, color: tuple[int, int, int], alpha: int = 100):
         """Draw a line segment with alpha transparency."""
-        # Create a temporary surface for alpha blending
         temp_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         pygame.draw.line(temp_surface, (*color, alpha), p1, p2, thickness)
-        surface.blit(temp_surface, (0, 0))
+        self.screen.blit(temp_surface, (0, 0))
 
-    def draw_cursor(self, surface: pygame.Surface, pos: tuple[int, int], clicking: bool = False):
+    def draw_cursor(self, pos: tuple[int, int], clicking: bool = False):
         """Draw the cursor ball."""
         radius = 12 if clicking else 8
         color = self.COLOR_CLICK if clicking else self.COLOR_CURSOR
 
         # Outer glow
-        pygame.draw.circle(surface, (*color, 100), pos, radius + 4)
-        # Main circle
-        pygame.draw.circle(surface, color, pos, radius)
-        # Inner highlight
-        pygame.draw.circle(surface, (255, 255, 255), (pos[0] - 2, pos[1] - 2), radius // 3)
+        glow_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        pygame.draw.circle(glow_surface, (*color, 100), pos, radius + 4)
+        self.screen.blit(glow_surface, (0, 0))
 
-    def draw_click_marker(self, surface: pygame.Surface, pos: tuple[int, int], age: float):
+        # Main circle
+        pygame.draw.circle(self.screen, color, pos, radius)
+        # Inner highlight
+        pygame.draw.circle(self.screen, (255, 255, 255), (pos[0] - 2, pos[1] - 2), radius // 3)
+
+    def draw_click_marker(self, pos: tuple[int, int], age: float):
         """Draw a click marker that fades with age."""
-        alpha = max(0, min(255, int(255 * (1 - age / 2.0))))  # Fade over 2 seconds
+        alpha = max(0, min(255, int(255 * (1 - age / 2.0))))
         if alpha <= 0:
             return
-
-        # Expanding ring effect
         radius = int(8 + age * 20)
         temp_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         pygame.draw.circle(temp_surface, (*self.COLOR_CLICK, alpha), pos, radius, 2)
-        surface.blit(temp_surface, (0, 0))
+        self.screen.blit(temp_surface, (0, 0))
 
-    def draw_keypress_list(self, surface: pygame.Surface):
+    def draw_keypress_list(self, visible_keypresses: list[KeypressEvent]):
         """Draw keypress events in bottom-left corner."""
-        if not self.visible_keypresses:
+        if not visible_keypresses:
             return
 
         padding = 10
         line_height = 24
-        box_width = 200
-        box_height = len(self.visible_keypresses) * line_height + padding * 2
+        box_width = 220
+        box_height = min(len(visible_keypresses), 8) * line_height + padding * 2
 
         # Semi-transparent background
         bg_rect = pygame.Rect(padding, self.height - box_height - padding, box_width, box_height)
         bg_surface = pygame.Surface((box_width, box_height), pygame.SRCALPHA)
         bg_surface.fill((0, 0, 0, 180))
-        surface.blit(bg_surface, bg_rect.topleft)
+        self.screen.blit(bg_surface, bg_rect.topleft)
 
-        # Draw each keypress
-        for i, event in enumerate(self.visible_keypresses[-8:]):  # Show last 8
-            y = self.height - box_height - padding + padding + i * line_height
+        # Header
+        header = self.font.render("Keypresses:", True, (200, 200, 200))
+        self.screen.blit(header, (padding + 5, self.height - box_height - padding + 5))
+
+        # Draw each keypress (show last 7)
+        for i, event in enumerate(visible_keypresses[-7:]):
+            y = self.height - box_height - padding + padding + 20 + i * line_height
             text = f"{event.index}. {event.key_name} ({int(event.duration_ms)}ms)"
             text_surface = self.font.render(text, True, self.COLOR_TEXT)
-            surface.blit(text_surface, (padding + 10, y))
+            self.screen.blit(text_surface, (padding + 10, y))
 
-    def draw_status(self, surface: pygame.Surface, paused: bool, speed: float):
+    def draw_status(self, current_time: float, paused: bool, speed: float, total_duration: float,
+                     game_state: Optional[GameState] = None):
         """Draw status info in top-right."""
-        status_text = f"{'PAUSED' if paused else 'PLAYING'} | Speed: {speed:.1f}x | Time: {self.current_time:.2f}s"
+        status_text = f"{'PAUSED' if paused else 'PLAYING'} | Speed: {speed:.1f}x | Time: {current_time:.2f}s / {total_duration:.2f}s"
         text_surface = self.font.render(status_text, True, self.COLOR_TEXT)
         text_rect = text_surface.get_rect(topright=(self.width - 10, 10))
 
-        # Background
         bg_rect = text_rect.inflate(10, 6)
         bg_surface = pygame.Surface(bg_rect.size, pygame.SRCALPHA)
         bg_surface.fill((0, 0, 0, 180))
-        surface.blit(bg_surface, bg_rect.topleft)
-        surface.blit(text_surface, text_rect)
+        self.screen.blit(bg_surface, bg_rect.topleft)
+        self.screen.blit(text_surface, text_rect)
 
-    def draw_instructions(self, surface: pygame.Surface):
+        # Draw game state indicator
+        if game_state:
+            state_text = f"State: {game_state.value}"
+            state_surface = self.font.render(state_text, True, (150, 200, 255))
+            state_rect = state_surface.get_rect(topright=(self.width - 10, 32))
+            state_bg_rect = state_rect.inflate(10, 6)
+            state_bg_surface = pygame.Surface(state_bg_rect.size, pygame.SRCALPHA)
+            state_bg_surface.fill((0, 0, 0, 180))
+            self.screen.blit(state_bg_surface, state_bg_rect.topleft)
+            self.screen.blit(state_surface, state_rect)
+
+    def draw_instructions(self):
         """Draw control instructions."""
         instructions = "SPACE: Pause | R: Restart | +/-: Speed | Q: Quit"
         text_surface = self.font.render(instructions, True, (200, 200, 200))
         text_rect = text_surface.get_rect(midbottom=(self.width // 2, self.height - 10))
-        surface.blit(text_surface, text_rect)
+        self.screen.blit(text_surface, text_rect)
 
-    def get_cursor_position_at_time(self, t: float) -> tuple[tuple[int, int], bool, Optional[PathSegment]]:
-        """Get cursor position at given time.
+    def draw_action_label(self, current_time: float):
+        """Draw current action label."""
+        current_label = ""
+        for action in self.actions:
+            if action.action_type == "move" and action.start_time <= current_time < action.end_time:
+                segment = action.data.get("segment")
+                if segment and segment.label:
+                    current_label = segment.label
+                    break
 
-        Returns:
-            (position, is_clicking, current_segment)
-        """
+        if current_label:
+            text_surface = self.font_large.render(current_label, True, self.COLOR_TEXT)
+            text_rect = text_surface.get_rect(midtop=(self.width // 2, 10))
+            bg_rect = text_rect.inflate(20, 10)
+            bg_surface = pygame.Surface(bg_rect.size, pygame.SRCALPHA)
+            bg_surface.fill((0, 0, 0, 180))
+            self.screen.blit(bg_surface, bg_rect.topleft)
+            self.screen.blit(text_surface, text_rect)
+
+    def get_cursor_position_at_time(self, t: float) -> tuple[tuple[int, int], bool]:
+        """Get cursor position at given time."""
         is_clicking = False
-        current_segment = None
 
-        # Check if we're clicking
+        # Check if clicking
         for click in self.click_events:
-            if click.timestamp <= t < click.timestamp + 0.1:
+            if click.timestamp <= t < click.timestamp + click.duration:
                 is_clicking = True
                 break
 
-        # Find active movement action
+        # Find active movement
         for action in self.actions:
             if action.action_type == "move" and action.start_time <= t < action.end_time:
                 segment = action.data["segment"]
-                current_segment = segment
-
-                # Calculate position along path
                 progress = (t - action.start_time) / (action.end_time - action.start_time)
                 point_index = int(progress * (len(segment.points) - 1))
                 point_index = min(point_index, len(segment.points) - 1)
-
-                return segment.points[point_index], is_clicking, segment
+                return segment.points[point_index], is_clicking
 
         # Find last completed movement
         last_pos = (self.width // 2, self.height // 2)
@@ -391,43 +731,37 @@ class MovementVisualizer:
                 last_pos = action.data["segment"].points[-1]
                 break
 
-        return last_pos, is_clicking, None
+        return last_pos, is_clicking
 
     def get_drawn_segments_at_time(self, t: float) -> list[tuple[PathSegment, int]]:
-        """Get path segments that should be drawn at given time.
-
-        Returns:
-            List of (segment, points_to_draw) tuples
-        """
+        """Get path segments to draw at given time."""
         result = []
-
         for action in self.actions:
             if action.action_type != "move":
                 continue
-
             segment = action.data["segment"]
-
             if action.end_time <= t:
-                # Fully completed - draw all points
                 result.append((segment, len(segment.points)))
             elif action.start_time <= t < action.end_time:
-                # In progress - draw up to current point
                 progress = (t - action.start_time) / (action.end_time - action.start_time)
                 points_drawn = int(progress * len(segment.points))
                 result.append((segment, points_drawn))
-
         return result
 
     def run(self):
         """Run the visualization loop."""
+        self.init_pygame()
+
         running = True
         paused = False
         speed = 1.0
+        current_time = 0.0
         last_update = time.time()
+        visible_keypresses: list[KeypressEvent] = []
 
         # Calculate total duration
         if self.actions:
-            total_duration = max(a.end_time for a in self.actions) + 1.0
+            total_duration = max(a.end_time for a in self.actions) + 0.5
         else:
             total_duration = 5.0
 
@@ -440,63 +774,62 @@ class MovementVisualizer:
                 if event.type == pygame.QUIT:
                     running = False
                 elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_q or event.key == pygame.K_ESCAPE:
+                    if event.key in (pygame.K_q, pygame.K_ESCAPE):
                         running = False
                     elif event.key == pygame.K_SPACE:
                         paused = not paused
                     elif event.key == pygame.K_r:
-                        self.current_time = 0
-                        self.visible_keypresses = []
-                    elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
+                        current_time = 0
+                        visible_keypresses = []
+                        self.current_state = GameState.WORLD_VIEW
+                    elif event.key in (pygame.K_PLUS, pygame.K_EQUALS):
                         speed = min(5.0, speed + 0.5)
                     elif event.key == pygame.K_MINUS:
                         speed = max(0.25, speed - 0.5)
 
             # Update time
             if not paused:
-                self.current_time += dt * speed
-                if self.current_time > total_duration:
-                    self.current_time = 0
-                    self.visible_keypresses = []
+                current_time += dt * speed
+                if current_time > total_duration:
+                    current_time = 0
+                    visible_keypresses = []
 
             # Update visible keypresses
             for event in self.keypress_events:
-                if event.timestamp <= self.current_time and event not in self.visible_keypresses:
-                    self.visible_keypresses.append(event)
+                if event.timestamp <= current_time and event not in visible_keypresses:
+                    visible_keypresses.append(event)
 
-            # Clear with background
-            self.screen.blit(self.background, (0, 0))
+            # Clear with background (use state-specific background)
+            game_state = self.get_game_state_at_time(current_time)
+            background = self.backgrounds.get(game_state, self.background)
+            self.screen.blit(background, (0, 0))
 
-            # Draw completed and in-progress path segments
-            segments_to_draw = self.get_drawn_segments_at_time(self.current_time)
+            # Draw path segments
+            segments_to_draw = self.get_drawn_segments_at_time(current_time)
             for segment, points_count in segments_to_draw:
                 for i in range(min(points_count - 1, len(segment.points) - 1)):
                     p1 = segment.points[i]
                     p2 = segment.points[i + 1]
-
-                    # Get delay for thickness
                     delay = segment.delays[i] if i < len(segment.delays) else 0.01
                     thickness = self.get_thickness_from_delay(delay)
-
-                    # Use overshoot color for overshoot segments
                     color = self.COLOR_OVERSHOOT if segment.is_overshoot else segment.color
-
-                    self.draw_path_with_alpha(self.screen, p1, p2, thickness, color, alpha=100)
+                    self.draw_path_with_alpha(p1, p2, thickness, color, alpha=100)
 
             # Draw click markers
             for click in self.click_events:
-                if click.timestamp <= self.current_time:
-                    age = self.current_time - click.timestamp
-                    self.draw_click_marker(self.screen, (click.x, click.y), age)
+                if click.timestamp <= current_time:
+                    age = current_time - click.timestamp
+                    self.draw_click_marker((click.x, click.y), age)
 
             # Draw cursor
-            cursor_pos, is_clicking, _ = self.get_cursor_position_at_time(self.current_time)
-            self.draw_cursor(self.screen, cursor_pos, is_clicking)
+            cursor_pos, is_clicking = self.get_cursor_position_at_time(current_time)
+            self.draw_cursor(cursor_pos, is_clicking)
 
             # Draw UI
-            self.draw_keypress_list(self.screen)
-            self.draw_status(self.screen, paused, speed)
-            self.draw_instructions(self.screen)
+            self.draw_keypress_list(visible_keypresses)
+            self.draw_status(current_time, paused, speed, total_duration, game_state)
+            self.draw_action_label(current_time)
+            self.draw_instructions()
 
             pygame.display.flip()
             self.clock.tick(60)
@@ -505,73 +838,55 @@ class MovementVisualizer:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize bot mouse movements in real-time")
-    parser.add_argument("--demo", action="store_true", help="Run with demo positions (no game detection)")
+    parser = argparse.ArgumentParser(description="Visualize bot movements using actual bot logic")
+    parser.add_argument("-c", "--config", type=str, default=None, help="Path to bot config file")
+    parser.add_argument("--demo", action="store_true", help="Run without RuneLite (demo mode)")
+    parser.add_argument("--herbs", type=int, default=28, help="Number of herbs to clean (default: 28)")
+    parser.add_argument("--with-deposit", action="store_true", help="Include deposit step (has clean herbs)")
     args = parser.parse_args()
 
     print("Bot Movement Visualizer")
-    print("=" * 40)
+    print("=" * 50)
+    print("Using ACTUAL bot logic from BotController")
+    print("=" * 50)
+
+    # Initialize visualizer with bot config
+    visualizer = BotMovementVisualizer(args.config)
 
     # Capture screenshot
-    print("Capturing RuneLite window...")
-    screen_capture = ScreenCapture()
-    bounds = screen_capture.find_window()
-
-    if bounds is None:
-        print("ERROR: Could not find RuneLite window!")
-        print("Make sure RuneLite is running and visible.")
-        if not args.demo:
-            sys.exit(1)
-        # Create demo screenshot
-        print("Running in demo mode with synthetic background...")
-        screenshot = np.zeros((600, 800, 3), dtype=np.uint8)
-        screenshot[:] = (40, 40, 50)  # Dark gray background
-        window_offset = (0, 0)
+    if not args.demo:
+        print("Looking for RuneLite window...")
+        if not visualizer.capture_screenshot():
+            print("WARNING: Could not find RuneLite window!")
+            print("Running in demo mode...")
+            visualizer.create_demo_screenshot()
+        else:
+            print(f"Captured {visualizer.width}x{visualizer.height} screenshot")
     else:
-        screenshot = screen_capture.capture_window()
-        if screenshot is None:
-            print("ERROR: Could not capture screenshot!")
-            sys.exit(1)
-        window_offset = (bounds.x, bounds.y)
-        print(f"Captured {screenshot.shape[1]}x{screenshot.shape[0]} screenshot")
+        print("Running in demo mode (no RuneLite)")
+        visualizer.create_demo_screenshot()
 
-    # Create visualizer
-    visualizer = MovementVisualizer(screenshot, window_offset)
-
-    # Generate demo herb cleaning cycle
-    # These positions are approximate - in real use would come from detectors
-    herb_bank_pos = (300, 250)  # Approximate bank herb position
-
-    # Calculate inventory slot positions (typical RuneLite layout)
-    inv_start_x = 580
-    inv_start_y = 230
-    slot_width = 42
-    slot_height = 36
-
-    inventory_slots = []
-    for row in range(7):
-        for col in range(4):
-            x = inv_start_x + col * slot_width + slot_width // 2
-            y = inv_start_y + row * slot_height + slot_height // 2
-            inventory_slots.append((x, y))
-
-    print("Generating simulated herb cleaning cycle...")
-    visualizer.generate_herb_cleaning_cycle(herb_bank_pos, inventory_slots)
+    # Simulate full cycle
+    print(f"Simulating herb cleaning cycle ({args.herbs} herbs)...")
+    visualizer.simulate_full_cycle(
+        has_clean_herbs=args.with_deposit,
+        num_grimy_herbs=args.herbs,
+    )
 
     print(f"Generated {len(visualizer.path_segments)} movement paths")
     print(f"Generated {len(visualizer.keypress_events)} keypress events")
+    print(f"Generated {len(visualizer.click_events)} click events")
     print()
     print("Controls:")
-    print("  SPACE - Pause/Resume")
-    print("  R     - Restart")
-    print("  +/-   - Adjust speed")
-    print("  Q/ESC - Quit")
+    print("  SPACE  - Pause/Resume")
+    print("  R      - Restart")
+    print("  +/-    - Adjust speed")
+    print("  Q/ESC  - Quit")
     print()
     print("Starting visualization...")
 
     visualizer.run()
-
-    screen_capture.close()
+    visualizer.screen_capture.close()
     print("Done!")
 
 

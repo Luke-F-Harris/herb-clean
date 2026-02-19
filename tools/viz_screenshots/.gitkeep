@@ -1,0 +1,12 @@
+# Screenshot Directory for Visualization
+# Place your OSRS screenshots here for realistic state visualization.
+#
+# Required files:
+#   world_view.png       - Standing near bank booth, bank closed
+#   bank_open.png        - Bank interface open, grimy herbs visible in bank
+#   inventory_grimy.png  - Bank closed, grimy herbs filling inventory
+#
+# Optional (for --with-deposit):
+#   bank_open_clean.png  - Bank open, clean herbs visible in inventory sidebar
+#
+# If screenshots are missing, colored demo backgrounds will be used instead.
