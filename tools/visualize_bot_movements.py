@@ -334,7 +334,7 @@ class BotMovementVisualizer:
             return {}
 
         positions = {}
-        templates_dir = Path(__file__).parent.parent / "templates"
+        templates_dir = Path(__file__).parent.parent / "config" / "templates"
 
         if not templates_dir.exists():
             print(f"  Templates directory not found: {templates_dir}")
