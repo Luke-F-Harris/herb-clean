@@ -369,8 +369,8 @@ def main():
                 print("  2. Try a different bank location")
                 print("  3. Ensure the bank is clearly visible on screen")
                 print()
-                retry = input("Retry detection? (y/n): ")
-                if retry.lower() != 'y':
+                retry = input("Retry detection? [Y/n]: ").strip().lower()
+                if retry == 'n':
                     print("Skipping bank booth detection...")
                     test_results["Bank Booth"] = "⚠ SKIP"
                     # Create a simple screenshot without booth marker
@@ -409,52 +409,71 @@ def main():
     print("Once the bank interface is open, press ENTER to continue...")
     input()
 
-    # Capture fresh screenshot with bank open
-    window_img = screen.capture_window()
-
-    # Detect bank interface elements directly to get full MatchResult with dimensions
-    deposit_match = matcher.match(
-        window_img,
-        config.get('bank', {}).get('deposit_all_template', 'deposit_all.png')
-    )
-    close_match = matcher.match(
-        window_img,
-        config.get('bank', {}).get('close_button_template', 'bank_close.png')
-    )
-
-    # Look for grimy herbs in bank (use region-based matching to avoid stack numbers)
+    # Retry loop for bank interface detection
+    is_bank_open = False
+    deposit_match = None
+    close_match = None
     herb_match = None
-    for herb_config in config.get('herbs', {}).get('grimy', []):
-        herb_match = matcher.match_bottom_region(
+
+    while True:
+        # Capture fresh screenshot with bank open
+        window_img = screen.capture_window()
+
+        # Detect bank interface elements directly to get full MatchResult with dimensions
+        deposit_match = matcher.match(
             window_img,
-            herb_config['template'],
-            region_percentage=0.65  # Use bottom 65% to avoid stack numbers
+            config.get('bank', {}).get('deposit_all_template', 'deposit_all.png')
         )
-        if herb_match.found:
+        close_match = matcher.match(
+            window_img,
+            config.get('bank', {}).get('close_button_template', 'bank_close.png')
+        )
+
+        # Look for grimy herbs in bank (use region-based matching to avoid stack numbers)
+        herb_match = None
+        for herb_config in config.get('herbs', {}).get('grimy', []):
+            herb_match = matcher.match_bottom_region(
+                window_img,
+                herb_config['template'],
+                region_percentage=0.65  # Use bottom 65% to avoid stack numbers
+            )
+            if herb_match.found:
+                break
+
+        # Convert to screen coordinates
+        bounds = screen.window_bounds
+        if deposit_match.found and bounds:
+            deposit_match.x += bounds.x
+            deposit_match.y += bounds.y
+            deposit_match.center_x += bounds.x
+            deposit_match.center_y += bounds.y
+
+        if close_match.found and bounds:
+            close_match.x += bounds.x
+            close_match.y += bounds.y
+            close_match.center_x += bounds.x
+            close_match.center_y += bounds.y
+
+        if herb_match and herb_match.found and bounds:
+            herb_match.x += bounds.x
+            herb_match.y += bounds.y
+            herb_match.center_x += bounds.x
+            herb_match.center_y += bounds.y
+
+        # Check if bank is open
+        is_bank_open = deposit_match.found or close_match.found
+
+        if is_bank_open:
             break
-
-    # Convert to screen coordinates
-    bounds = screen.window_bounds
-    if deposit_match.found and bounds:
-        deposit_match.x += bounds.x
-        deposit_match.y += bounds.y
-        deposit_match.center_x += bounds.x
-        deposit_match.center_y += bounds.y
-
-    if close_match.found and bounds:
-        close_match.x += bounds.x
-        close_match.y += bounds.y
-        close_match.center_x += bounds.x
-        close_match.center_y += bounds.y
-
-    if herb_match and herb_match.found and bounds:
-        herb_match.x += bounds.x
-        herb_match.y += bounds.y
-        herb_match.center_x += bounds.x
-        herb_match.center_y += bounds.y
-
-    # Check if bank is open
-    is_bank_open = deposit_match.found or close_match.found
+        else:
+            print()
+            print("❌ Bank interface not detected")
+            print("  Make sure the bank window is fully open and visible")
+            print()
+            retry = input("Retry detection? [Y/n]: ").strip().lower()
+            if retry == 'n':
+                print("Skipping bank interface detection...")
+                break
 
     if is_bank_open:
         print("✓ Bank interface detected as OPEN")
@@ -528,26 +547,38 @@ def main():
     print("Once you have herbs in inventory, press ENTER to continue...")
     input()
 
-    # Refresh inventory state
-    window_img = screen.capture_window()
-    inventory.detect_inventory_state()
-    grimy_slots = inventory.get_grimy_slots()
+    # Retry loop for grimy herb detection
+    grimy_slots = []
 
-    if grimy_slots:
-        print(f"✓ Found {len(grimy_slots)} grimy herb(s) in inventory")
+    while True:
+        # Refresh inventory state
+        window_img = screen.capture_window()
+        inventory.detect_inventory_state()
+        grimy_slots = inventory.get_grimy_slots()
 
-        for i, slot in enumerate(grimy_slots[:5]):  # Show first 5
-            screen_x, screen_y = inventory.get_slot_screen_coords(slot.index)
-            print(f"  Slot {slot.index}: ({screen_x}, {screen_y}) - {slot.item_name}")
+        if grimy_slots:
+            print(f"✓ Found {len(grimy_slots)} grimy herb(s) in inventory")
 
-        if len(grimy_slots) > 5:
-            print(f"  ... and {len(grimy_slots) - 5} more")
+            for i, slot in enumerate(grimy_slots[:5]):  # Show first 5
+                screen_x, screen_y = inventory.get_slot_screen_coords(slot.index)
+                print(f"  Slot {slot.index}: ({screen_x}, {screen_y}) - {slot.item_name}")
 
-        test_results["Grimy Herbs in Inventory"] = "✓ PASS"
-    else:
-        print("⚠ No grimy herbs found in inventory")
-        print("  Put some grimy herbs in inventory for full test")
-        test_results["Grimy Herbs in Inventory"] = "⚠ WARN"
+            if len(grimy_slots) > 5:
+                print(f"  ... and {len(grimy_slots) - 5} more")
+
+            test_results["Grimy Herbs in Inventory"] = "✓ PASS"
+            break
+        else:
+            print()
+            print("❌ No grimy herbs found in inventory")
+            print("  Make sure you have grimy herbs in your inventory")
+            print("  Ensure the herb type matches your templates")
+            print()
+            retry = input("Retry detection? [Y/n]: ").strip().lower()
+            if retry == 'n':
+                print("Skipping grimy herb detection...")
+                test_results["Grimy Herbs in Inventory"] = "⚠ WARN"
+                break
 
     # Draw visualization
     test4_img = window_img.copy()
