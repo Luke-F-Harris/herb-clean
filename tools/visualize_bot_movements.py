@@ -242,10 +242,33 @@ class BotMovementVisualizer:
         return False
 
     def create_demo_screenshot(self):
-        """Create a demo screenshot for testing without RuneLite."""
+        """Create a demo screenshot for testing without RuneLite.
+
+        If real screenshots exist, uses their native resolution.
+        Otherwise falls back to 800x600.
+        """
+        self.window_offset = (0, 0)
+
+        # Try to get dimensions from real screenshots
+        screenshots_dir = Path(__file__).parent / "viz_screenshots"
+        sample_file = screenshots_dir / "world_view.png"
+
+        if sample_file.exists():
+            try:
+                import cv2
+                img = cv2.imread(str(sample_file))
+                if img is not None:
+                    self.height, self.width = img.shape[:2]
+                    self.screenshot = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+                    self.screenshot[:] = (40, 40, 50)
+                    print(f"Using native screenshot resolution: {self.width}x{self.height}")
+                    return
+            except ImportError:
+                pass
+
+        # Fallback to default size
         self.screenshot = np.zeros((600, 800, 3), dtype=np.uint8)
         self.screenshot[:] = (40, 40, 50)
-        self.window_offset = (0, 0)
         self.height, self.width = 600, 800
 
     def load_screenshots(self) -> dict[GameState, np.ndarray]:
@@ -623,10 +646,6 @@ class BotMovementVisualizer:
             if state in screenshots:
                 # Convert loaded screenshot (BGR) to pygame surface
                 img = screenshots[state]
-                # Resize if needed to match window size
-                if img.shape[0] != self.height or img.shape[1] != self.width:
-                    import cv2
-                    img = cv2.resize(img, (self.width, self.height))
                 img_rgb = img[:, :, ::-1].copy()
                 self.backgrounds[state] = pygame.surfarray.make_surface(img_rgb.swapaxes(0, 1))
             elif state in demo_backgrounds:
