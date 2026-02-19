@@ -1,5 +1,6 @@
 """Bank interface detection."""
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -7,6 +8,8 @@ import numpy as np
 
 from .screen_capture import ScreenCapture
 from .template_matcher import TemplateMatcher, MatchResult
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -312,12 +315,11 @@ class BankDetector:
     def find_grimy_herb_in_bank(self) -> Optional[MatchResult]:
         """Find grimy herb in bank interface.
 
-        Uses hybrid color + template matching approach:
-        1. Pre-filter candidates using color histogram similarity
-        2. Run template matching only on top candidates
+        Uses direct template matching on all herb templates:
+        1. Detect bank item region using quad-anchor triangulation
+        2. Run template matching on ALL herb templates (bypass color filter)
         3. Use bottom-region matching to avoid stack number interference
-
-        This significantly improves accuracy for visually similar herbs.
+        4. Return the best match above threshold
 
         Returns:
             MatchResult with position and dimensions, or None
@@ -336,40 +338,44 @@ class BankDetector:
             search_image = cropped_image
             offset_x = x
             offset_y = y
+            logger.debug(f"Bank region detected: {bank_region}")
         else:
             # Fallback: search full image if bank region not detected
             search_image = screen_image
             offset_x = 0
             offset_y = 0
+            logger.debug("Bank region not detected, searching full image")
 
-        # Extract all template names for color pre-filtering
-        template_names = [herb_config["template"] for herb_config in self.grimy_templates]
-
-        # Pre-filter using color histogram (get top 3 candidates)
-        color_candidates = self.matcher.filter_templates_by_color(
-            search_image,
-            template_names,
-            top_k=3
-        )
-
-        # Try template matching on color-filtered candidates only
+        # Direct template matching on ALL herbs (bypass broken color filter)
         best_match = None
         best_confidence = 0.0
+        best_template = None
 
-        for template_name, color_similarity in color_candidates:
+        for herb_config in self.grimy_templates:
+            template_name = herb_config["template"]
             # Use bottom-region matching for bank items (avoids stack numbers)
             # Using 70% - balance between avoiding text and keeping enough template data
             match = self.matcher.match_bottom_region(
                 search_image,
                 template_name,
-                region_percentage=0.70  # Use bottom 70% of item to avoid stack text
+                region_percentage=0.70
+            )
+
+            logger.debug(
+                f"{template_name}: conf={match.confidence:.3f}, found={match.found}"
             )
 
             if match.found and match.confidence > best_confidence:
+                logger.debug(f"New best: {template_name} ({match.confidence:.3f})")
                 best_match = match
                 best_confidence = match.confidence
+                best_template = template_name
 
         if best_match:
+            logger.debug(
+                f"Final match: {best_template} at ({best_match.center_x}, "
+                f"{best_match.center_y}) conf={best_confidence:.3f}"
+            )
             # Adjust coordinates to account for cropped region
             best_match.x += offset_x
             best_match.y += offset_y
@@ -380,6 +386,7 @@ class BankDetector:
             self._cached_state.grimy_herb_location = match_result
             return match_result
 
+        logger.debug("No herb match found above threshold")
         return None
 
     def is_bank_open(self) -> bool:
