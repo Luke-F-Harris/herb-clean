@@ -1165,19 +1165,57 @@ class BotMovementVisualizer:
                 self.backgrounds[state] = self.background
                 print(f"  Using fallback for {state.value}")
 
-    def get_thickness_from_delay(self, delay: float) -> int:
+    def _calculate_delay_range(self, all_movements: list[PathSegment]) -> tuple[float, float]:
+        """Calculate actual min/max delays from all movements.
+
+        This ensures the visualization accurately reflects the actual speed variation
+        in the generated paths, rather than using hardcoded estimates.
+        """
+        all_delays = []
+        for movement in all_movements:
+            all_delays.extend(movement.delays)
+        if not all_delays:
+            return (0.002, 0.08)  # fallback
+        return (min(all_delays), max(all_delays))
+
+    def get_thickness_from_delay(self, delay: float, min_delay: float, max_delay: float) -> int:
         """Calculate line thickness from delay (slower = thicker).
 
         More exaggerated thickness range to make speed variation clearly visible.
-        - Fast movement (low delay): thin line (1-2px)
-        - Slow movement (high delay): thick line (8-10px)
+        - Fast movement (low delay): thin line (1px)
+        - Slow movement (high delay): thick line (14px)
+
+        Args:
+            delay: The delay value for this segment
+            min_delay: Minimum delay across all movements
+            max_delay: Maximum delay across all movements
         """
-        # Adjusted range to match new continuous speed variation
-        min_delay, max_delay = 0.002, 0.08
-        normalized = (delay - min_delay) / (max_delay - min_delay)
+        normalized = (delay - min_delay) / (max_delay - min_delay + 1e-6)
         normalized = max(0, min(1, normalized))
-        # Increased thickness range: 1-10 pixels (was 1-7)
-        return int(1 + normalized * 9)
+        # Wider thickness range: 1-14 pixels (was 1-10)
+        return int(1 + normalized * 13)
+
+    def get_color_from_delay(self, delay: float, min_delay: float, max_delay: float) -> tuple[int, int, int]:
+        """Map delay to color: cyan (fast) -> magenta (slow).
+
+        This provides a complementary visual indicator to thickness,
+        making speed variation even more obvious.
+
+        Args:
+            delay: The delay value for this segment
+            min_delay: Minimum delay across all movements
+            max_delay: Maximum delay across all movements
+
+        Returns:
+            RGB color tuple
+        """
+        normalized = (delay - min_delay) / (max_delay - min_delay + 1e-6)
+        normalized = max(0, min(1, normalized))
+        # Interpolate between cyan (0, 255, 255) and magenta (255, 0, 255)
+        r = int(normalized * 255)
+        g = int((1 - normalized) * 255)
+        b = 255
+        return (r, g, b)
 
     def draw_path_with_alpha(self, p1: tuple[int, int], p2: tuple[int, int],
                              thickness: int, color: tuple[int, int, int], alpha: int = 100):
@@ -1416,6 +1454,9 @@ class BotMovementVisualizer:
         else:
             total_duration = 5.0
 
+        # Calculate actual delay range for proper visualization scaling
+        min_delay, max_delay = self._calculate_delay_range(self.path_segments)
+
         while running:
             dt = time.time() - last_update
             last_update = time.time()
@@ -1472,16 +1513,21 @@ class BotMovementVisualizer:
             # Clear alpha surface once, draw all segments, blit once
             self._alpha_surface.fill((0, 0, 0, 0))
 
-            # Draw path segments
+            # Draw path segments with speed-based thickness and color
             segments_to_draw = self.get_drawn_segments_at_time(current_time)
             for segment, points_count in segments_to_draw:
                 for i in range(min(points_count - 1, len(segment.points) - 1)):
                     p1 = segment.points[i]
                     p2 = segment.points[i + 1]
                     delay = segment.delays[i] if i < len(segment.delays) else 0.01
-                    thickness = self.get_thickness_from_delay(delay)
-                    color = self.COLOR_OVERSHOOT if segment.is_overshoot else segment.color
-                    self.draw_path_with_alpha(p1, p2, thickness, color, alpha=100)
+                    thickness = self.get_thickness_from_delay(delay, min_delay, max_delay)
+                    # Use speed-based color gradient (cyan=fast, magenta=slow)
+                    # unless it's an overshoot segment
+                    if segment.is_overshoot:
+                        color = self.COLOR_OVERSHOOT
+                    else:
+                        color = self.get_color_from_delay(delay, min_delay, max_delay)
+                    self.draw_path_with_alpha(p1, p2, thickness, color, alpha=120)
 
             # Blit all path segments at once
             self.screen.blit(self._alpha_surface, (0, 0))
@@ -1575,6 +1621,17 @@ def main():
         print(f"Generated {len(visualizer.path_segments)} movement paths")
         print(f"Generated {len(visualizer.keypress_events)} keypress events")
         print(f"Generated {len(visualizer.click_events)} click events")
+
+        # Print speed variation statistics
+        if visualizer.path_segments:
+            min_delay, max_delay = visualizer._calculate_delay_range(visualizer.path_segments)
+            print()
+            print("Speed variation statistics:")
+            print(f"  Delay range: {min_delay*1000:.2f}ms - {max_delay*1000:.2f}ms")
+            if min_delay > 0:
+                print(f"  Variation ratio: {max_delay/min_delay:.1f}x (slow/fast)")
+            print(f"  Visualization: cyan=fast (thin), magenta=slow (thick)")
+
         print()
         print("Starting visualization... (Press ENTER for new simulation, Q to quit)")
 
