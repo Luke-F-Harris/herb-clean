@@ -379,20 +379,17 @@ class BezierMovement:
     ) -> list[Point]:
         """Generate points along a cubic Bezier curve.
 
-        Uses variable speed based on selected easing function.
+        Points are distributed uniformly along the curve parameter.
+        Easing is NOT applied here - it's applied to timing in get_point_delays().
+        This prevents point clustering that causes teleporting.
         """
+        # Note: easing_func parameter is kept for API compatibility but ignored
+        # Easing is now applied to timing, not point distribution
         points = []
-        if easing_func is None:
-            # Calculate distance for organic easing
-            dx = p3.x - p0.x
-            dy = p3.y - p0.y
-            distance = math.sqrt(dx * dx + dy * dy)
-            easing_func = self._get_random_easing_function(distance)
 
         for i in range(num_points):
-            # Variable t for speed variation using selected easing
-            linear_t = i / (num_points - 1) if num_points > 1 else 1
-            t = easing_func(linear_t)
+            # Use linear t for uniform point distribution
+            t = i / (num_points - 1) if num_points > 1 else 1
 
             # Cubic Bezier formula
             x = (
@@ -422,19 +419,15 @@ class BezierMovement:
     ) -> list[Point]:
         """Generate points along a quadratic Bezier curve.
 
-        Simpler curve with single control point for more natural variation.
+        Points are distributed uniformly along the curve parameter.
+        Easing is NOT applied here - it's applied to timing in get_point_delays().
         """
+        # Note: easing_func parameter is kept for API compatibility but ignored
         points = []
-        if easing_func is None:
-            # Calculate distance for organic easing (p2 is the end point)
-            dx = p2.x - p0.x
-            dy = p2.y - p0.y
-            distance = math.sqrt(dx * dx + dy * dy)
-            easing_func = self._get_random_easing_function(distance)
 
         for i in range(num_points):
-            linear_t = i / (num_points - 1) if num_points > 1 else 1
-            t = easing_func(linear_t)
+            # Use linear t for uniform point distribution
+            t = i / (num_points - 1) if num_points > 1 else 1
 
             # Quadratic Bezier formula
             x = (1 - t) ** 2 * p0.x + 2 * (1 - t) * t * p1.x + t ** 2 * p2.x
@@ -786,9 +779,7 @@ class BezierMovement:
             )
 
         # Calculate distances between consecutive points
-        # This fixes the teleporting bug: easing clusters points unevenly,
-        # so we weight delays by actual distance to prevent large spatial
-        # gaps from being traversed too quickly
+        # This handles natural curve geometry variations (curves bend more in some places)
         distances = []
         for i in range(num_segments):
             dx = path[i + 1][0] - path[i][0]
@@ -796,33 +787,20 @@ class BezierMovement:
             distances.append(math.sqrt(dx * dx + dy * dy))
 
         total_distance = sum(distances)
-        avg_distance = total_distance / num_segments if num_segments > 0 else 1
 
-        # Generate the continuous speed profile
+        # Generate the continuous speed profile (creates slow-fast-slow pattern)
         speed_factors = self._generate_speed_profile(num_segments)
 
         for i in range(num_segments):
-            # Base delay proportional to distance (fixes teleporting)
+            # Base delay proportional to distance (handles curve geometry)
             if total_distance > 0:
                 proportion = distances[i] / total_distance
                 base_delay = total_time * proportion
             else:
                 base_delay = total_time / num_segments
 
-            # Cap speed factor for large gaps to prevent teleporting
-            # When a gap is larger than average, limit how much we can speed up
-            # This ensures large spatial gaps always get proportionally longer delays
-            speed_factor = speed_factors[i]
-            if distances[i] > avg_distance:
-                # For gaps larger than average, cap speedup based on gap size
-                # Larger gaps = more restricted speedup (closer to 1.0)
-                gap_ratio = distances[i] / avg_distance
-                # At 2x average distance, max speedup is ~1.25x
-                # At 3x average distance, max speedup is ~1.17x
-                max_speedup = 1.0 + (self.config.max_speed_factor - 1.0) / gap_ratio
-                speed_factor = min(speed_factor, max_speedup)
-
-            delay = base_delay / speed_factor
+            # Apply speed profile for natural acceleration/deceleration
+            delay = base_delay / speed_factors[i]
 
             # Add micro-pause at designated point
             if i == micro_pause_index:
