@@ -172,11 +172,33 @@ class BotMovementVisualizer:
 
         # Movement config from bot settings
         mouse_cfg = self.config.mouse
+        jitter_cfg = mouse_cfg.get("jitter", {})
+        imperfection_cfg = mouse_cfg.get("imperfection", {})
+        speed_var_cfg = mouse_cfg.get("speed_variation", {})
+        micro_correction_cfg = imperfection_cfg.get("micro_correction", {})
+        micro_pause_cfg = speed_var_cfg.get("micro_pause", {})
+
         self.movement_config = MovementConfig(
             speed_range=tuple(mouse_cfg.get("speed_range", [200, 400])),
             overshoot_chance=mouse_cfg.get("overshoot_chance", 0.30),
             overshoot_distance=tuple(mouse_cfg.get("overshoot_distance", [5, 15])),
             curve_variance=mouse_cfg.get("curve_variance", 0.3),
+            # Jitter settings
+            jitter_enabled=jitter_cfg.get("enabled", True),
+            jitter_radius=tuple(jitter_cfg.get("radius", [1.0, 3.0])),
+            jitter_points=jitter_cfg.get("points", 3),
+            # Imperfection settings
+            imperfection_enabled=imperfection_cfg.get("enabled", True),
+            simple_curve_chance=imperfection_cfg.get("simple_curve_chance", 0.15),
+            control_point_variance=imperfection_cfg.get("control_point_variance", 0.2),
+            micro_correction_chance=micro_correction_cfg.get("chance", 0.3),
+            micro_correction_magnitude=tuple(micro_correction_cfg.get("magnitude", [2.0, 8.0])),
+            # Speed variation settings
+            speed_variation_enabled=speed_var_cfg.get("enabled", True),
+            easing_functions=tuple(speed_var_cfg.get("easing_functions", ["ease_in_out", "ease_in", "ease_out", "linear", "ease_in_out_back"])),
+            easing_weights=tuple(speed_var_cfg.get("easing_weights", [0.50, 0.15, 0.15, 0.10, 0.10])),
+            micro_pause_chance=micro_pause_cfg.get("chance", 0.20),
+            micro_pause_duration=tuple(micro_pause_cfg.get("duration", [0.02, 0.08])),
         )
         self.bezier = BezierMovement(self.movement_config)
 

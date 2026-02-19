@@ -31,6 +31,43 @@ mouse:
   - 5
   - 15
   curve_variance: 0.3
+  # Jitter (hand tremor simulation near clicks)
+  jitter:
+    enabled: true
+    radius:
+    - 1.0
+    - 3.0
+    points: 3
+  # Curve imperfections (path deviations)
+  imperfection:
+    enabled: true
+    simple_curve_chance: 0.15
+    control_point_variance: 0.2
+    micro_correction:
+      chance: 0.3
+      magnitude:
+      - 2.0
+      - 8.0
+  # Speed variation (easing and micro-pauses)
+  speed_variation:
+    enabled: true
+    easing_functions:
+    - ease_in_out
+    - ease_in
+    - ease_out
+    - linear
+    - ease_in_out_back
+    easing_weights:
+    - 0.50
+    - 0.15
+    - 0.15
+    - 0.10
+    - 0.10
+    micro_pause:
+      chance: 0.20
+      duration:
+      - 0.02
+      - 0.08
 click:
   position_sigma_ratio: 6
   duration_mean: 100
