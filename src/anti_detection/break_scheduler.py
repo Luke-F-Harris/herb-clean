@@ -7,7 +7,7 @@ from typing import Optional, Callable
 
 import numpy as np
 
-from ..utils import create_rng
+from src.utils import create_rng
 
 
 class BreakType(Enum):

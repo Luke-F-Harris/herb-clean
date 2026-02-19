@@ -6,7 +6,7 @@ from typing import Optional
 
 import numpy as np
 
-from ..utils import create_rng
+from src.utils import create_rng
 from pynput.mouse import Button
 
 from .config_manager import ConfigManager

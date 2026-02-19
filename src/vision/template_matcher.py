@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from ..utils import BANK_BG_COLOR_BGR
+from src.utils import BANK_BG_COLOR_BGR
 
 
 @dataclass

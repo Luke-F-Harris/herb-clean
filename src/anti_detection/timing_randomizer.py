@@ -6,7 +6,7 @@ from typing import Optional
 
 import numpy as np
 
-from ..utils import create_rng, gamma_delay
+from src.utils import create_rng, gamma_delay
 
 
 class ActionType(Enum):
