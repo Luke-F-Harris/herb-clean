@@ -31,11 +31,8 @@ TemplateMatcher = tm_module.TemplateMatcher
 
 # =============================================================================
 # FALLBACK POSITIONS (proportional, used when template matching fails)
-# These ratios are from skill_checker.py and should work across window sizes
-#
-# Click areas represent the actual random offset ranges from skill_checker.py:
-#   - Skills/Inventory tab: _rng.integers(-5, 6) for x and y → 11x11 box
-#   - Herblore: _rng.integers(-8, 9) for x, (-5, 6) for y → 17x11 box
+# These ratios are from skill_checker.py and should work across window sizes.
+# The box size shown is the actual template image size.
 # =============================================================================
 
 FALLBACK_RATIOS = {
@@ -44,61 +41,50 @@ FALLBACK_RATIOS = {
         "y_ratio": 0.247,  # 24.7% vertical
         "label": "Skills Tab",
         "color": (255, 255, 0),  # Cyan
-        "click_offset_x": 5,  # ±5 pixels horizontal
-        "click_offset_y": 5,  # ±5 pixels vertical
     },
     "inventory_tab.png": {
         "x_ratio": 0.716,  # 71.6% horizontal
         "y_ratio": 0.247,  # 24.7% vertical
         "label": "Inventory Tab",
         "color": (0, 255, 0),  # Green
-        "click_offset_x": 5,  # ±5 pixels horizontal
-        "click_offset_y": 5,  # ±5 pixels vertical
     },
     "herblore_skill.png": {
         "x_ratio": 0.671,  # 67.1% horizontal
         "y_ratio": 0.344,  # 34.4% vertical
         "label": "Herblore",
         "color": (255, 0, 255),  # Purple
-        "click_offset_x": 8,  # ±8 pixels horizontal
-        "click_offset_y": 5,  # ±5 pixels vertical
     },
 }
 
 
-def draw_click_area(image, center_x, center_y, offset_x, offset_y, label, color, marker_type="detected"):
-    """Draw a box representing the actual click area from skill_checker.py.
+def draw_click_area(image, x, y, width, height, label, color, marker_type="detected"):
+    """Draw a box representing the matched template area.
 
     Args:
         image: Image to draw on
-        center_x, center_y: Center position (detected or fallback)
-        offset_x, offset_y: Random offset range (±offset pixels)
+        x, y: Top-left corner of the matched template
+        width, height: Size of the matched template
         label: Element label
         color: Box color (BGR)
         marker_type: "detected" (solid) or "fallback" (dashed)
     """
-    # Calculate box bounds (the area where clicks can randomly land)
-    x1 = center_x - offset_x
-    y1 = center_y - offset_y
-    x2 = center_x + offset_x
-    y2 = center_y + offset_y
-
     thickness = 2 if marker_type == "detected" else 1
 
-    # Draw the click area box
-    cv2.rectangle(image, (x1, y1), (x2, y2), color, thickness)
+    # Draw the template match area box
+    cv2.rectangle(image, (x, y), (x + width, y + height), color, thickness)
 
-    # Draw center point
-    cv2.circle(image, (center_x, center_y), 2, color, -1)
+    # Draw center point (where the base click position is)
+    center_x = x + width // 2
+    center_y = y + height // 2
+    cv2.circle(image, (center_x, center_y), 3, color, -1)
 
     # Label with background
     prefix = "Fallback: " if marker_type == "fallback" else "Detected: "
-    box_size = f"{offset_x * 2 + 1}x{offset_y * 2 + 1}"
-    text = f"{prefix}{label} ({center_x}, {center_y}) [{box_size}px]"
+    text = f"{prefix}{label} ({center_x}, {center_y}) [{width}x{height}px]"
     text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)[0]
-    text_y = y1 - 8
-    cv2.rectangle(image, (x1 - 2, text_y - 12), (x1 + text_size[0] + 4, text_y + 2), (0, 0, 0), -1)
-    cv2.putText(image, text, (x1, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+    text_y = y - 8
+    cv2.rectangle(image, (x - 2, text_y - 12), (x + text_size[0] + 4, text_y + 2), (0, 0, 0), -1)
+    cv2.putText(image, text, (x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
 
 
 def test_template_detection(screenshot_path, templates_to_test, matcher, output_dir):
@@ -129,29 +115,34 @@ def test_template_detection(screenshot_path, templates_to_test, matcher, output_
         label = fallback["label"]
         color = fallback["color"]
 
-        # Calculate fallback position
-        fallback_x = int(w * fallback["x_ratio"])
-        fallback_y = int(h * fallback["y_ratio"])
-
         # Run template matching
         result = matcher.match(image, template_name)
 
-        # Get click area offsets
-        offset_x = fallback["click_offset_x"]
-        offset_y = fallback["click_offset_y"]
-        box_size = f"{offset_x * 2 + 1}x{offset_y * 2 + 1}"
+        # Get template dimensions for fallback (load template to get size)
+        template = matcher.load_template(template_name)
+        if template is not None:
+            template_h, template_w = template.shape[:2]
+        else:
+            template_w, template_h = 30, 30  # Default fallback size
+
+        # Calculate fallback position (center point)
+        fallback_center_x = int(w * fallback["x_ratio"])
+        fallback_center_y = int(h * fallback["y_ratio"])
+        # Convert to top-left for drawing
+        fallback_x = fallback_center_x - template_w // 2
+        fallback_y = fallback_center_y - template_h // 2
 
         if result.found:
             results["templates_found"] += 1
             print(f"  {label}: TEMPLATE MATCHED")
+            print(f"    Position: ({result.x}, {result.y})")
+            print(f"    Size: {result.width}x{result.height}px")
             print(f"    Center: ({result.center_x}, {result.center_y})")
-            print(f"    Click area: {box_size}px (±{offset_x}, ±{offset_y})")
             print(f"    Confidence: {result.confidence:.3f}")
-            print(f"    Fallback would be: ({fallback_x}, {fallback_y})")
 
-            # Draw detected click area (solid box)
-            draw_click_area(display_image, result.center_x, result.center_y,
-                          offset_x, offset_y, label, color, "detected")
+            # Draw detected template area (solid box)
+            draw_click_area(display_image, result.x, result.y,
+                          result.width, result.height, label, color, "detected")
 
             results["details"].append({
                 "template": template_name,
@@ -161,17 +152,17 @@ def test_template_detection(screenshot_path, templates_to_test, matcher, output_
             })
         else:
             print(f"  {label}: NO TEMPLATE MATCH (confidence {result.confidence:.3f})")
-            print(f"    Using fallback: ({fallback_x}, {fallback_y})")
-            print(f"    Click area: {box_size}px (±{offset_x}, ±{offset_y})")
+            print(f"    Using fallback center: ({fallback_center_x}, {fallback_center_y})")
+            print(f"    Template size: {template_w}x{template_h}px")
 
-            # Draw fallback click area (thinner box)
+            # Draw fallback area (thinner box)
             draw_click_area(display_image, fallback_x, fallback_y,
-                          offset_x, offset_y, label, color, "fallback")
+                          template_w, template_h, label, color, "fallback")
 
             results["details"].append({
                 "template": template_name,
                 "method": "fallback",
-                "position": (fallback_x, fallback_y),
+                "position": (fallback_center_x, fallback_center_y),
             })
 
     # Add header
