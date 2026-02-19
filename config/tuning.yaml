@@ -109,10 +109,11 @@ path:
       magnitude: [2.0, 8.0]     # Pixels of deviation
 
   # Multi-segment curves (more organic, complex paths)
-  # Uses 3-4 control points instead of 2 for more natural variation
+  # Uses 3 control points instead of 2 for more natural variation
+  # Keep this rare - too many control points creates wild curves
   multi_segment:
-    chance: 0.25                # 25% chance for longer movements
-    max_control_points: 4       # Maximum control points (2-4)
+    chance: 0.08                # 8% chance for longer movements (was 25%)
+    max_control_points: 3       # Maximum 3 control points (was 4)
 
 # =============================================================================
 # INVENTORY TRAVERSAL PATTERNS

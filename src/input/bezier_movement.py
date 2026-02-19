@@ -101,17 +101,25 @@ class BezierMovement:
         # Decide curve type:
         # - Quadratic (1 control point): 15% chance - simpler curves
         # - Cubic (2 control points): default - standard curves
-        # - Multi-segment (3-4 control points): 25% chance - complex organic curves
+        # - Multi-segment (3 control points): rare - only for medium movements
         use_quadratic = (
             self.config.imperfection_enabled
             and self._rng.random() < self.config.simple_curve_chance
         )
 
+        # Multi-segment curves: only for medium-distance movements (80-250px)
+        # Very long movements (>250px) should use simple curves to avoid wild paths
+        multi_segment_chance = self.config.multi_segment_chance
+        if distance > 250:
+            multi_segment_chance = 0  # Never use multi-segment for very long moves
+        elif distance > 150:
+            multi_segment_chance *= 0.5  # Reduce chance for longer moves
+
         use_multi_segment = (
             self.config.imperfection_enabled
             and not use_quadratic
-            and distance > 50  # Only for longer movements
-            and self._rng.random() < self.config.multi_segment_chance
+            and 80 < distance < 300  # Only for medium movements
+            and self._rng.random() < multi_segment_chance
         )
 
         # Check for overshoot
@@ -195,6 +203,13 @@ class BezierMovement:
             # Add extra variance from config
             base_variance += self._rng.uniform(0, self.config.control_point_variance)
 
+        # Scale down variance for longer movements to prevent wild curves
+        # Short movements (< 100px): full variance
+        # Long movements (> 300px): reduced to 60% variance
+        if distance > 100:
+            distance_scale = max(0.6, 1.0 - (distance - 100) / 500)
+            base_variance *= distance_scale
+
         max_offset = distance * base_variance
 
         # Generate asymmetric offsets - avoid mirror symmetry
@@ -270,6 +285,14 @@ class BezierMovement:
         base_variance = self.config.curve_variance
         if self.config.imperfection_enabled:
             base_variance += self._rng.uniform(0, self.config.control_point_variance)
+
+        # Scale down variance for longer movements (same as standard control points)
+        if distance > 100:
+            distance_scale = max(0.6, 1.0 - (distance - 100) / 500)
+            base_variance *= distance_scale
+
+        # Further reduce variance for multi-control to prevent wild curves
+        base_variance *= 0.7
 
         max_offset = distance * base_variance
         controls = []
