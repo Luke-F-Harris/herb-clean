@@ -21,6 +21,7 @@ from ..anti_detection.timing_randomizer import TimingRandomizer, ActionType, Tim
 from ..anti_detection.fatigue_simulator import FatigueSimulator, FatigueConfig
 from ..anti_detection.break_scheduler import BreakScheduler, BreakConfig, BreakType
 from ..anti_detection.attention_drift import AttentionDrift, DriftConfig
+from ..anti_detection.skill_checker import SkillChecker, SkillCheckConfig
 from ..safety.emergency_stop import EmergencyStop
 from ..safety.session_tracker import SessionTracker, SessionConfig
 
@@ -180,6 +181,19 @@ class BotController:
             )
         )
 
+        skill_check_cfg = self.config.get_section("skill_check")
+        self.skill_checker = SkillChecker(
+            config=SkillCheckConfig(
+                enabled=skill_check_cfg.get("enabled", True),
+                cooldown_interval=tuple(skill_check_cfg.get("cooldown_interval", [600, 900])),
+                hover_duration=tuple(skill_check_cfg.get("hover_duration", [3.0, 8.0])),
+            ),
+            keyboard=self.keyboard,
+            mouse=self.mouse,
+            screen=self.screen,
+            template_matcher=self.template_matcher,
+        )
+
         # Initialize safety components
         safety_cfg = self.config.safety
         self.emergency_stop = EmergencyStop(
@@ -276,6 +290,12 @@ class BotController:
                 lapse_duration = self.fatigue.get_attention_lapse_duration()
                 self._logger.debug("Attention lapse: %.1fs", lapse_duration)
                 time.sleep(lapse_duration)
+                continue
+
+            # Check for skill check (only during cleaning)
+            state = self.state_machine.get_current_state()
+            if state == BotState.CLEANING and self.skill_checker.should_check():
+                self._handle_skill_check()
                 continue
 
             # Log stats periodically
@@ -636,6 +656,11 @@ class BotController:
         time.sleep(duration)
 
         self.session.record_attention_drift()
+
+    def _handle_skill_check(self) -> None:
+        """Handle periodic skill check."""
+        self._logger.info("Checking herblore skill...")
+        self.skill_checker.perform_skill_check()
 
     def _handle_error(self) -> None:
         """Handle error state."""

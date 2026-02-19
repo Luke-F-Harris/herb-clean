@@ -102,6 +102,10 @@ attention:
     weight: 2
   - name: random
     weight: 1
+skill_check:
+  enabled: true
+  cooldown_interval: [600, 900]  # 10-15 minutes in seconds
+  hover_duration: [3.0, 8.0]     # 3-8 seconds hover time
 vision:
   confidence_threshold: 0.55
   multi_scale: true
