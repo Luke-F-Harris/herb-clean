@@ -23,10 +23,18 @@ import pygame
 import yaml
 
 
-def _load_module_direct(module_name: str, file_path: Path):
-    """Load a module directly from file, bypassing __init__.py."""
+def _load_module_direct(module_name: str, file_path: Path, parent_package: str | None = None):
+    """Load a module directly from file, bypassing __init__.py.
+
+    Args:
+        module_name: Name for the module in sys.modules
+        file_path: Path to the module file
+        parent_package: Optional parent package name for relative imports
+    """
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     module = importlib.util.module_from_spec(spec)
+    if parent_package:
+        module.__package__ = parent_package
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
@@ -35,7 +43,20 @@ def _load_module_direct(module_name: str, file_path: Path):
 # Load modules directly to avoid __init__.py import chains
 _src_dir = Path(__file__).parent.parent / "src"
 
-_bezier_mod = _load_module_direct("bezier_movement", _src_dir / "input" / "bezier_movement.py")
+# Load organic_easing first (dependency of bezier_movement)
+_organic_easing_mod = _load_module_direct("organic_easing", _src_dir / "input" / "organic_easing.py")
+sys.modules["src.input.organic_easing"] = _organic_easing_mod
+
+# Create a fake input package module for relative imports
+class _FakeModule:
+    pass
+_input_pkg = _FakeModule()
+_input_pkg.organic_easing = _organic_easing_mod
+_input_pkg.OrganicEasing = _organic_easing_mod.OrganicEasing
+_input_pkg.OrganicEasingConfig = _organic_easing_mod.OrganicEasingConfig
+sys.modules["src.input"] = _input_pkg
+
+_bezier_mod = _load_module_direct("bezier_movement", _src_dir / "input" / "bezier_movement.py", "src.input")
 BezierMovement = _bezier_mod.BezierMovement
 MovementConfig = _bezier_mod.MovementConfig
 
@@ -110,6 +131,8 @@ class GameState(Enum):
     BANK_OPEN = "bank_open"            # Bank interface open with grimy herbs
     BANK_OPEN_CLEAN = "bank_open_clean"  # Bank open with clean herbs in inventory
     INVENTORY_GRIMY = "inventory_grimy"  # Bank closed, grimy herbs in inventory
+    SKILLS_TAB = "skills_tab"          # Skills tab open
+    HERBLORE_HOVER = "herblore_hover"  # Hovering over herblore skill
 
 
 @dataclass
@@ -337,6 +360,8 @@ class BotMovementVisualizer:
             GameState.BANK_OPEN: "bank_open.png",
             GameState.BANK_OPEN_CLEAN: "bank_open_clean.png",
             GameState.INVENTORY_GRIMY: "inventory_grimy.png",
+            GameState.SKILLS_TAB: "skills_tab_view.png",
+            GameState.HERBLORE_HOVER: "herblore_skill_hover.png",
         }
 
         import cv2
@@ -433,6 +458,8 @@ class BotMovementVisualizer:
             GameState.BANK_OPEN: (40, 50, 70),       # Dark brown - bank interface
             GameState.BANK_OPEN_CLEAN: (50, 60, 80), # Slightly lighter brown
             GameState.INVENTORY_GRIMY: (70, 50, 40), # Dark blue - inventory focus
+            GameState.SKILLS_TAB: (60, 40, 80),      # Purple - skills tab
+            GameState.HERBLORE_HOVER: (80, 60, 100), # Lighter purple - herblore hover
         }
 
         for state, color in state_colors.items():
@@ -901,10 +928,10 @@ class BotMovementVisualizer:
         """Simulate checking the herblore skill.
 
         Steps:
-        1. Press F2 (skills tab)
+        1. Click skills tab icon
         2. Move to herblore skill position
         3. Hover for specified duration (simulated as shortened delay)
-        4. Press F3 (inventory tab)
+        4. Click inventory tab icon
 
         Args:
             current_pos: Current mouse position
@@ -914,7 +941,7 @@ class BotMovementVisualizer:
         Returns:
             (final_position, end_time)
         """
-        print("  SKILL CHECK: Opening skills tab and checking herblore")
+        print("  SKILL CHECK: Clicking skills tab and checking herblore")
 
         current_time = start_time
 
@@ -922,12 +949,31 @@ class BotMovementVisualizer:
         pre_delay = self._rng.uniform(0.2, 0.5)
         current_time = self._add_delay(current_time, pre_delay)
 
-        # Step 1: Press F2 to open skills tab
-        current_time = self._simulate_keypress("F2", current_time)
+        # Step 1: Click skills tab icon to open skills tab
+        # Skills tab icon at x=509, y=205 (30x30 pixels)
+        skills_tab_x = 509 + 15  # Center of tab
+        skills_tab_y = 205 + 15
+        skills_tab_x += self._rng.integers(-5, 6)
+        skills_tab_y += self._rng.integers(-5, 6)
+
+        skills_tab_target = ClickTarget(
+            center_x=skills_tab_x,
+            center_y=skills_tab_y,
+            width=30,
+            height=30,
+        )
+
+        current_pos, current_time = self._simulate_move_to_target(
+            current_pos, skills_tab_target, (100, 200, 255), current_time,
+            label="Click Skills Tab"
+        )
 
         # Wait for tab animation
         tab_switch_delay = self._rng.uniform(0.15, 0.30)
         current_time = self._add_delay(current_time, tab_switch_delay)
+
+        # State transition: Skills tab is now open
+        self._add_state_transition(current_time, GameState.SKILLS_TAB)
 
         # Step 2: Move to herblore skill position
         # Skills panel position (relative to window)
@@ -945,14 +991,6 @@ class BotMovementVisualizer:
         # Add small random offset
         herblore_x += self._rng.integers(-8, 9)
         herblore_y += self._rng.integers(-5, 6)
-
-        # Create target for herblore skill
-        herblore_target = ClickTarget(
-            center_x=herblore_x,
-            center_y=herblore_y,
-            width=skill_width,
-            height=skill_height,
-        )
 
         # Move to herblore (no click, just movement)
         path = self.bezier.generate_path(current_pos, (herblore_x, herblore_y), num_points=60)
@@ -978,6 +1016,9 @@ class BotMovementVisualizer:
 
         current_time += move_time
         current_pos = (herblore_x, herblore_y)
+
+        # State transition: Now hovering over herblore
+        self._add_state_transition(current_time, GameState.HERBLORE_HOVER)
 
         # Step 3: Hover for duration (compressed for visualization)
         # Real hover is 3-8 seconds, but we compress it for visualization
@@ -1021,12 +1062,31 @@ class BotMovementVisualizer:
                 current_time += micro_time
                 current_pos = new_pos
 
-        # Step 4: Press F3 to return to inventory tab
-        current_time = self._simulate_keypress("F3", current_time)
+        # Step 4: Click inventory tab icon to return
+        # Inventory tab icon at x=571, y=205 (30x30 pixels)
+        inventory_tab_x = 571 + 15  # Center of tab
+        inventory_tab_y = 205 + 15
+        inventory_tab_x += self._rng.integers(-5, 6)
+        inventory_tab_y += self._rng.integers(-5, 6)
+
+        inventory_tab_target = ClickTarget(
+            center_x=inventory_tab_x,
+            center_y=inventory_tab_y,
+            width=30,
+            height=30,
+        )
+
+        current_pos, current_time = self._simulate_move_to_target(
+            current_pos, inventory_tab_target, (100, 200, 255), current_time,
+            label="Click Inventory Tab"
+        )
 
         # Post-switch delay
         return_delay = self._rng.uniform(0.1, 0.25)
         current_time = self._add_delay(current_time, return_delay)
+
+        # State transition: Back to inventory view
+        self._add_state_transition(current_time, GameState.INVENTORY_GRIMY)
 
         print(f"  Skill check complete")
 
@@ -1402,6 +1462,40 @@ class BotMovementVisualizer:
         pygame.draw.circle(temp_surface, (*self.COLOR_CLICK, alpha), pos, radius, 2)
         self.screen.blit(temp_surface, (0, 0))
 
+    def draw_ui_regions(self, game_state: GameState):
+        """Draw highlighted boxes around UI regions based on current state.
+
+        Shows contextual highlights:
+        - Skills tab icon when in INVENTORY_GRIMY (target to click)
+        - Inventory tab icon when in SKILLS_TAB/HERBLORE_HOVER (return target)
+        - Herblore skill when in SKILLS_TAB (hover target)
+        """
+        # Define regions (positions relative to game window)
+        skills_tab_rect = pygame.Rect(509, 195, 30, 30)
+        inventory_tab_rect = pygame.Rect(571, 195, 30, 30)
+        herblore_rect = pygame.Rect(579, 270, 58, 32)  # Row 2, Col 1 in skills grid
+
+        # Colors
+        TAB_COLOR = (100, 200, 255)     # Cyan for tabs
+        SKILL_COLOR = (200, 150, 255)   # Purple for herblore
+
+        if game_state == GameState.INVENTORY_GRIMY:
+            # Show skills tab as target
+            pygame.draw.rect(self.screen, TAB_COLOR, skills_tab_rect, 2)
+            label = self.font.render("Skills Tab", True, TAB_COLOR)
+            self.screen.blit(label, (skills_tab_rect.x - 10, skills_tab_rect.y - 18))
+
+        elif game_state in (GameState.SKILLS_TAB, GameState.HERBLORE_HOVER):
+            # Show inventory tab as return target
+            pygame.draw.rect(self.screen, TAB_COLOR, inventory_tab_rect, 2)
+            label = self.font.render("Inventory Tab", True, TAB_COLOR)
+            self.screen.blit(label, (inventory_tab_rect.x - 30, inventory_tab_rect.y - 18))
+
+            # Show herblore skill
+            pygame.draw.rect(self.screen, SKILL_COLOR, herblore_rect, 2)
+            label = self.font.render("Herblore", True, SKILL_COLOR)
+            self.screen.blit(label, (herblore_rect.x, herblore_rect.y - 18))
+
     def draw_debug_targets(self):
         """Draw rectangles around all click targets for debugging."""
         for target, label, color in self.debug_targets:
@@ -1660,6 +1754,9 @@ class BotMovementVisualizer:
             game_state = self.get_game_state_at_time(current_time)
             background = self.backgrounds.get(game_state, self.background)
             self.screen.blit(background, (0, 0))
+
+            # Draw UI region highlights based on current state
+            self.draw_ui_regions(game_state)
 
             # Draw debug target rectangles if enabled
             if self.debug_mode:

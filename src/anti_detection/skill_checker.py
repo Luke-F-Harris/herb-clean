@@ -82,18 +82,18 @@ class SkillChecker:
         """Perform a skill check by opening skills tab and hovering over herblore.
 
         Steps:
-        1. Press F2 (skills tab)
+        1. Click skills tab icon
         2. Wait for tab to open
         3. Move mouse to herblore skill position
         4. Hover for 3-8 seconds
-        5. Press F3 (inventory tab)
+        5. Click inventory tab icon
         6. Reset cooldown timer
 
         Returns:
             True if check completed successfully
         """
-        if not self._keyboard:
-            self._logger.warning("No keyboard controller, skipping skill check")
+        if not self._mouse:
+            self._logger.warning("No mouse controller, skipping skill check")
             return False
 
         self._logger.info("Checking herblore skill (check #%d)", self._check_count + 1)
@@ -102,9 +102,12 @@ class SkillChecker:
         pre_delay = self._rng.uniform(0.2, 0.5)
         time.sleep(pre_delay)
 
-        # Step 1: Press F2 to open skills tab
-        if not self._keyboard.press_f_key(2, pre_delay=True):
-            self._logger.warning("Failed to press F2")
+        # Step 1: Click skills tab icon to open skills tab
+        skills_tab_pos = self._get_skills_tab_position()
+        if skills_tab_pos:
+            self._mouse.click_at(skills_tab_pos[0], skills_tab_pos[1])
+        else:
+            self._logger.warning("Failed to get skills tab position")
             return False
 
         # Wait for tab animation
@@ -114,7 +117,7 @@ class SkillChecker:
         # Step 2: Move mouse to herblore skill position
         # Herblore is in the skills panel - approximate position relative to panel
         # Skills panel is typically on the right side of the screen
-        if self._mouse and self._screen:
+        if self._screen:
             herblore_pos = self._get_herblore_position()
             if herblore_pos:
                 self._mouse.move_to(herblore_pos[0], herblore_pos[1])
@@ -129,11 +132,13 @@ class SkillChecker:
         # During hover, occasionally make small idle movements
         self._perform_hover_with_idle_movements(hover_duration)
 
-        # Step 4: Press F3 to return to inventory tab
-        if not self._keyboard.press_f_key(3, pre_delay=True):
-            self._logger.warning("Failed to press F3")
+        # Step 4: Click inventory tab icon to return
+        inventory_tab_pos = self._get_inventory_tab_position()
+        if inventory_tab_pos:
+            self._mouse.click_at(inventory_tab_pos[0], inventory_tab_pos[1])
+        else:
+            self._logger.warning("Failed to get inventory tab position")
             # Still count as completed since we did check the skill
-            pass
 
         # Wait for tab to switch back
         return_delay = self._rng.uniform(0.1, 0.25)
@@ -199,6 +204,76 @@ class SkillChecker:
 
         # Add small random offset for human-like targeting
         offset_x = self._rng.integers(-8, 9)
+        offset_y = self._rng.integers(-5, 6)
+
+        return (screen_x + offset_x, screen_y + offset_y)
+
+    def _get_skills_tab_position(self) -> Optional[tuple[int, int]]:
+        """Get screen position of skills tab icon.
+
+        Skills tab icon is at x=509, y=205 (30x30 pixels) relative to game window.
+
+        Returns:
+            (x, y) screen coordinates or None if cannot determine
+        """
+        if not self._screen:
+            return None
+
+        bounds = self._screen.window_bounds
+        if not bounds:
+            return None
+
+        # Skills tab icon position (relative to window)
+        tab_x = 509
+        tab_y = 205
+        tab_width = 30
+        tab_height = 30
+
+        # Calculate center of tab icon
+        center_x = tab_x + (tab_width // 2)
+        center_y = tab_y + (tab_height // 2)
+
+        # Add window offset
+        screen_x = bounds.x + center_x
+        screen_y = bounds.y + center_y
+
+        # Add small random offset for human-like targeting
+        offset_x = self._rng.integers(-5, 6)
+        offset_y = self._rng.integers(-5, 6)
+
+        return (screen_x + offset_x, screen_y + offset_y)
+
+    def _get_inventory_tab_position(self) -> Optional[tuple[int, int]]:
+        """Get screen position of inventory tab icon.
+
+        Inventory tab icon is at x=571, y=205 (30x30 pixels) relative to game window.
+
+        Returns:
+            (x, y) screen coordinates or None if cannot determine
+        """
+        if not self._screen:
+            return None
+
+        bounds = self._screen.window_bounds
+        if not bounds:
+            return None
+
+        # Inventory tab icon position (relative to window)
+        tab_x = 571
+        tab_y = 205
+        tab_width = 30
+        tab_height = 30
+
+        # Calculate center of tab icon
+        center_x = tab_x + (tab_width // 2)
+        center_y = tab_y + (tab_height // 2)
+
+        # Add window offset
+        screen_x = bounds.x + center_x
+        screen_y = bounds.y + center_y
+
+        # Add small random offset for human-like targeting
+        offset_x = self._rng.integers(-5, 6)
         offset_y = self._rng.integers(-5, 6)
 
         return (screen_x + offset_x, screen_y + offset_y)

@@ -178,6 +178,17 @@ traversal:
   # Explicitly NOT including:
   # - random_shuffle (too chaotic, detectable)
   # - weighted_nearest (requires special handling)
+tabs:
+  skills:
+    x: 509
+    y: 205
+    width: 30
+    height: 30
+  inventory:
+    x: 571
+    y: 205
+    width: 30
+    height: 30
 bank:
   booth_template: bank_booth.png
   chest_template: bank_chest.png
