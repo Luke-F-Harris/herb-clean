@@ -84,6 +84,12 @@ SETUP:
         help="Test configuration without running bot",
     )
 
+    parser.add_argument(
+        "--status-ui",
+        action="store_true",
+        help="Enable Rich terminal UI for real-time anti-detection status",
+    )
+
     return parser.parse_args()
 
 
@@ -173,8 +179,30 @@ def main() -> int:
             return 1
 
     # Run bot
+    status_display = None
     try:
         controller = BotController(args.config)
+
+        # Start status UI if requested
+        if args.status_ui:
+            try:
+                from ui.status_display import StatusDisplay, check_rich_available
+
+                if check_rich_available():
+                    status_display = StatusDisplay(
+                        aggregator=controller.status_aggregator,
+                        events=controller.events,
+                    )
+                    if status_display.start():
+                        logger.info("Status UI enabled")
+                    else:
+                        logger.warning("Status UI failed to start, continuing without it")
+                        status_display = None
+                else:
+                    logger.warning("Rich library not installed, status UI disabled. Run: pip install rich")
+            except ImportError as e:
+                logger.warning("Could not import status display: %s", e)
+
         controller.start()
         return 0
 
@@ -193,6 +221,10 @@ def main() -> int:
     except Exception as e:
         logger.exception("Unexpected error: %s", e)
         return 1
+
+    finally:
+        if status_display:
+            status_display.stop()
 
 
 if __name__ == "__main__":

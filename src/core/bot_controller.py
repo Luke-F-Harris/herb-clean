@@ -9,6 +9,8 @@ from pynput.mouse import Button
 
 from .config_manager import ConfigManager
 from .state_machine import HerbCleaningStateMachine, BotState
+from .events import EventEmitter
+from .status_aggregator import StatusAggregator
 from ..vision.screen_capture import ScreenCapture
 from ..vision.template_matcher import TemplateMatcher
 from ..vision.inventory_detector import InventoryDetector
@@ -223,6 +225,18 @@ class BotController:
         self._is_running = False
         self._rng = np.random.default_rng()
 
+        # Initialize event emitter and status aggregator
+        self.events = EventEmitter()
+        self.status_aggregator = StatusAggregator(
+            fatigue=self.fatigue,
+            breaks=self.breaks,
+            timing=self.timing,
+            attention=self.attention,
+            skill_checker=self.skill_checker,
+            session=self.session,
+            state_machine=self.state_machine,
+        )
+
     def _handle_emergency_stop(self) -> None:
         """Handle emergency stop trigger."""
         self._logger.warning("EMERGENCY STOP TRIGGERED")
@@ -302,6 +316,7 @@ class BotController:
             if self.fatigue.should_have_attention_lapse():
                 lapse_duration = self.fatigue.get_attention_lapse_duration()
                 self._logger.debug("Attention lapse: %.1fs", lapse_duration)
+                self.events.emit_attention_lapse(lapse_duration)
                 time.sleep(lapse_duration)
                 continue
 
@@ -612,6 +627,9 @@ class BotController:
             if self.timing.should_have_micro_pause():
                 delay += self.timing.get_micro_pause_duration()
 
+            # Record delay for status display
+            self.status_aggregator.record_delay(delay * 1000)
+
             time.sleep(delay)
 
     def _handle_break(self, scheduled_break) -> None:
@@ -631,8 +649,14 @@ class BotController:
             if self.state_machine.can_transition_to("break_long"):
                 self.state_machine.take_long_break()
 
+        # Emit break start event
+        self.events.emit_break_start(break_type.value, scheduled_break.duration)
+
         # Execute break
         duration = self.breaks.execute_break(scheduled_break)
+
+        # Emit break end event
+        self.events.emit_break_end(break_type.value, duration)
 
         # Record break
         if break_type == BreakType.MICRO:
@@ -668,12 +692,18 @@ class BotController:
         duration = self.attention.get_drift_duration()
         time.sleep(duration)
 
+        # Emit drift event
+        self.events.emit_drift(target_type.value, duration)
+
         self.session.record_attention_drift()
 
     def _handle_skill_check(self) -> None:
         """Handle periodic skill check."""
         self._logger.info("Checking herblore skill...")
         self.skill_checker.perform_skill_check()
+
+        # Emit skill check event
+        self.events.emit_skill_check(0.0)  # Duration tracked internally
 
     def _handle_error(self) -> None:
         """Handle error state."""
