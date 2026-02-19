@@ -1269,7 +1269,7 @@ class BotMovementVisualizer:
 
     def draw_instructions(self):
         """Draw control instructions."""
-        instructions = "SPACE: Pause | R: Restart | +/-: Speed | Q: Quit"
+        instructions = "SPACE: Pause | R: Restart | ENTER: New Sim | +/-: Speed | Q: Quit"
         text_surface = self.font.render(instructions, True, (200, 200, 200))
         text_rect = text_surface.get_rect(midbottom=(self.width // 2, self.height - 10))
         self.screen.blit(text_surface, text_rect)
@@ -1366,8 +1366,25 @@ class BotMovementVisualizer:
         self._last_cache_time = t
         return result
 
-    def run(self):
-        """Run the visualization loop."""
+    def reset_simulation(self):
+        """Reset simulation state for a new run."""
+        self.path_segments = []
+        self.keypress_events = []
+        self.click_events = []
+        self.actions = []
+        self.state_transitions = []
+        self.debug_targets = []
+        self._completed_segments_cache = []
+        self._last_cache_time = -1.0
+        self.current_state = GameState.WORLD_VIEW
+
+    def run(self) -> bool:
+        """Run the visualization loop.
+
+        Returns:
+            True if user wants to run another simulation (Enter pressed),
+            False if user wants to quit (Q/ESC pressed).
+        """
         self.init_pygame()
 
         running = True
@@ -1376,6 +1393,7 @@ class BotMovementVisualizer:
         current_time = 0.0
         last_update = time.time()
         visible_keypresses: list[KeypressEvent] = []
+        run_again = False
 
         # Calculate total duration
         if self.actions:
@@ -1394,6 +1412,10 @@ class BotMovementVisualizer:
                 elif event.type == pygame.KEYDOWN:
                     if event.key in (pygame.K_q, pygame.K_ESCAPE):
                         running = False
+                    elif event.key == pygame.K_RETURN:
+                        # Enter pressed - run another simulation
+                        running = False
+                        run_again = True
                     elif event.key == pygame.K_SPACE:
                         paused = not paused
                     elif event.key == pygame.K_r:
@@ -1470,6 +1492,7 @@ class BotMovementVisualizer:
             self.clock.tick(60)
 
         pygame.quit()
+        return run_again
 
 
 def main():
@@ -1508,27 +1531,40 @@ def main():
     screenshots = visualizer.load_screenshots()
     visualizer.detected_positions = visualizer.detect_ui_positions(screenshots)
 
-    # Simulate full cycle
-    has_deposit = not args.no_deposit
-    print(f"Simulating herb cleaning cycle ({args.herbs} herbs, deposit={'yes' if has_deposit else 'no'})...")
-    visualizer.simulate_full_cycle(
-        has_clean_herbs=has_deposit,
-        num_grimy_herbs=args.herbs,
-    )
-
-    print(f"Generated {len(visualizer.path_segments)} movement paths")
-    print(f"Generated {len(visualizer.keypress_events)} keypress events")
-    print(f"Generated {len(visualizer.click_events)} click events")
     print()
     print("Controls:")
     print("  SPACE  - Pause/Resume")
-    print("  R      - Restart")
+    print("  R      - Restart current simulation")
+    print("  ENTER  - New simulation (regenerate paths)")
     print("  +/-    - Adjust speed")
     print("  Q/ESC  - Quit")
-    print()
-    print("Starting visualization...")
 
-    visualizer.run()
+    has_deposit = not args.no_deposit
+    run_count = 0
+
+    while True:
+        run_count += 1
+        print()
+        print(f"=== Simulation #{run_count} ===")
+
+        # Reset and simulate new cycle
+        visualizer.reset_simulation()
+        print(f"Simulating herb cleaning cycle ({args.herbs} herbs, deposit={'yes' if has_deposit else 'no'})...")
+        visualizer.simulate_full_cycle(
+            has_clean_herbs=has_deposit,
+            num_grimy_herbs=args.herbs,
+        )
+
+        print(f"Generated {len(visualizer.path_segments)} movement paths")
+        print(f"Generated {len(visualizer.keypress_events)} keypress events")
+        print(f"Generated {len(visualizer.click_events)} click events")
+        print()
+        print("Starting visualization... (Press ENTER for new simulation, Q to quit)")
+
+        run_again = visualizer.run()
+        if not run_again:
+            break
+
     print("Done!")
 
 
