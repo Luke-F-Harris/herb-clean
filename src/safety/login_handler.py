@@ -11,10 +11,10 @@ import numpy as np
 from utils import create_rng
 
 if TYPE_CHECKING:
-    from ..vision.screen_capture import ScreenCapture
-    from ..vision.template_matcher import TemplateMatcher
-    from ..input.mouse_controller import MouseController
-    from ..input.click_handler import ClickTarget
+    from vision.screen_capture import ScreenCapture
+    from vision.template_matcher import TemplateMatcher
+    from input.mouse_controller import MouseController
+    from input.click_handler import ClickTarget
 
 
 class LoginState(Enum):

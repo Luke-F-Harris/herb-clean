@@ -11,10 +11,10 @@ import numpy as np
 from utils import create_rng
 
 if TYPE_CHECKING:
-    from ..input.keyboard_controller import KeyboardController
-    from ..input.mouse_controller import MouseController
-    from ..vision.screen_capture import ScreenCapture
-    from ..vision.template_matcher import TemplateMatcher
+    from input.keyboard_controller import KeyboardController
+    from input.mouse_controller import MouseController
+    from vision.screen_capture import ScreenCapture
+    from vision.template_matcher import TemplateMatcher
 
 
 @dataclass
