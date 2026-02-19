@@ -892,6 +892,146 @@ class BotMovementVisualizer:
 
         return (target_x, target_y), final_click_time + click_result.duration
 
+    def _simulate_skill_check(
+        self,
+        current_pos: tuple[int, int],
+        start_time: float,
+        hover_duration: float = 5.0,
+    ) -> tuple[tuple[int, int], float]:
+        """Simulate checking the herblore skill.
+
+        Steps:
+        1. Press F2 (skills tab)
+        2. Move to herblore skill position
+        3. Hover for specified duration (simulated as shortened delay)
+        4. Press F3 (inventory tab)
+
+        Args:
+            current_pos: Current mouse position
+            start_time: Current simulation time
+            hover_duration: How long to hover (will be compressed for visualization)
+
+        Returns:
+            (final_position, end_time)
+        """
+        print("  SKILL CHECK: Opening skills tab and checking herblore")
+
+        current_time = start_time
+
+        # Pre-action delay (thinking pause)
+        pre_delay = self._rng.uniform(0.2, 0.5)
+        current_time = self._add_delay(current_time, pre_delay)
+
+        # Step 1: Press F2 to open skills tab
+        current_time = self._simulate_keypress("F2", current_time)
+
+        # Wait for tab animation
+        tab_switch_delay = self._rng.uniform(0.15, 0.30)
+        current_time = self._add_delay(current_time, tab_switch_delay)
+
+        # Step 2: Move to herblore skill position
+        # Skills panel position (relative to window)
+        # Herblore is row 2, column 1 in the skills grid
+        panel_x = 550
+        panel_y = 210
+        skill_width = 58
+        skill_height = 32
+        herblore_row = 2
+        herblore_col = 1
+
+        herblore_x = panel_x + (herblore_col * skill_width) + (skill_width // 2)
+        herblore_y = panel_y + (herblore_row * skill_height) + (skill_height // 2)
+
+        # Add small random offset
+        herblore_x += self._rng.integers(-8, 9)
+        herblore_y += self._rng.integers(-5, 6)
+
+        # Create target for herblore skill
+        herblore_target = ClickTarget(
+            center_x=herblore_x,
+            center_y=herblore_y,
+            width=skill_width,
+            height=skill_height,
+        )
+
+        # Move to herblore (no click, just movement)
+        path = self.bezier.generate_path(current_pos, (herblore_x, herblore_y), num_points=60)
+        move_time = self.bezier.calculate_movement_time(current_pos, (herblore_x, herblore_y))
+        delays = self.bezier.get_point_delays(path, move_time)
+
+        segment = PathSegment(
+            points=path,
+            delays=delays,
+            total_time=move_time,
+            color=(200, 150, 255),  # Purple for skill check
+            is_overshoot=False,
+            label="Move to Herblore skill",
+        )
+        self.path_segments.append(segment)
+
+        self.actions.append(SimulatedAction(
+            action_type="move",
+            start_time=current_time,
+            end_time=current_time + move_time,
+            data={"segment": segment},
+        ))
+
+        current_time += move_time
+        current_pos = (herblore_x, herblore_y)
+
+        # Step 3: Hover for duration (compressed for visualization)
+        # Real hover is 3-8 seconds, but we compress it for visualization
+        # Show it as 1-2 seconds to keep things watchable
+        compressed_hover = min(hover_duration, 2.0)
+        print(f"  Hovering over herblore for {hover_duration:.1f}s (compressed to {compressed_hover:.1f}s)")
+
+        # Simulate small idle movements during hover
+        num_idle_moves = int(compressed_hover / 0.5)
+        for i in range(num_idle_moves):
+            # Small idle delay
+            idle_delay = self._rng.uniform(0.3, 0.6)
+            current_time = self._add_delay(current_time, idle_delay)
+
+            # 30% chance of tiny movement (more frequent for visualization)
+            if self._rng.random() < 0.30:
+                dx = self._rng.integers(-3, 4)
+                dy = self._rng.integers(-3, 4)
+                new_pos = (current_pos[0] + dx, current_pos[1] + dy)
+
+                # Micro movement path
+                micro_path = self.bezier.generate_path(current_pos, new_pos, num_points=10)
+                micro_time = 0.05  # Very quick
+                micro_delays = [micro_time / len(micro_path)] * len(micro_path)
+
+                micro_segment = PathSegment(
+                    points=micro_path,
+                    delays=micro_delays,
+                    total_time=micro_time,
+                    color=(180, 130, 230),  # Lighter purple for idle
+                    is_overshoot=False,
+                    label="",
+                )
+                self.path_segments.append(micro_segment)
+                self.actions.append(SimulatedAction(
+                    action_type="move",
+                    start_time=current_time,
+                    end_time=current_time + micro_time,
+                    data={"segment": micro_segment},
+                ))
+                current_time += micro_time
+                current_pos = new_pos
+
+        # Step 4: Press F3 to return to inventory tab
+        current_time = self._simulate_keypress("F3", current_time)
+
+        # Post-switch delay
+        return_delay = self._rng.uniform(0.1, 0.25)
+        current_time = self._add_delay(current_time, return_delay)
+
+        print(f"  Skill check complete")
+
+        return current_pos, current_time
+
     def simulate_full_cycle(
         self,
         bank_booth_pos: Optional[tuple[int, int]] = None,
@@ -902,6 +1042,7 @@ class BotMovementVisualizer:
         has_clean_herbs: bool = False,
         num_grimy_herbs: int = 28,
         num_cycles: int = 2,
+        force_skill_check: bool = False,
     ):
         """Simulate herb cleaning cycles using bot logic.
 
@@ -1085,7 +1226,21 @@ class BotMovementVisualizer:
             accidental_drag_chance = self.config.get("cleaning.accidental_drag_chance", 0.05)
             overshoot_undershoot_rate = self.config.get("cleaning.overshoot_undershoot_rate", 0.05)
 
+            # Determine when to trigger skill check (if enabled)
+            # Trigger after ~10 herbs in the first cycle
+            skill_check_after_herb = 10 if (force_skill_check and cycle == 0) else -1
+            skill_check_done = False
+
             for count, slot_idx in enumerate(traversal_order):
+                # Check if we should do a skill check now
+                if not skill_check_done and count == skill_check_after_herb:
+                    skill_check_cfg = self.config.get("skill_check", {}) or {}
+                    hover_range = skill_check_cfg.get("hover_duration", [3.0, 8.0])
+                    hover_duration = self._rng.uniform(hover_range[0], hover_range[1])
+                    current_pos, current_time = self._simulate_skill_check(
+                        current_pos, current_time, hover_duration
+                    )
+                    skill_check_done = True
                 slot_pos = inventory_slots[slot_idx]
                 slot_row = slot_idx // 4  # Calculate row (0-6) from slot index
                 slot_col = slot_idx % 4   # Calculate column (0-3) from slot index
@@ -1564,6 +1719,7 @@ def main():
     parser.add_argument("--cycles", type=int, default=2, help="Number of bank+clean cycles (default: 2)")
     parser.add_argument("--no-deposit", action="store_true", help="Skip deposit step on first cycle")
     parser.add_argument("--debug", action="store_true", help="Show click target rectangles for debugging positions")
+    parser.add_argument("--skill-check", action="store_true", help="Force a skill check during the simulation")
     args = parser.parse_args()
 
     print("Bot Movement Visualizer")
@@ -1611,11 +1767,13 @@ def main():
 
         # Reset and simulate new cycle
         visualizer.reset_simulation()
-        print(f"Simulating {args.cycles} cycles ({args.herbs} herbs/cycle, first deposit={'yes' if has_deposit else 'no'})...")
+        skill_check_str = ", skill-check=yes" if args.skill_check else ""
+        print(f"Simulating {args.cycles} cycles ({args.herbs} herbs/cycle, first deposit={'yes' if has_deposit else 'no'}{skill_check_str})...")
         visualizer.simulate_full_cycle(
             has_clean_herbs=has_deposit,
             num_grimy_herbs=args.herbs,
             num_cycles=args.cycles,
+            force_skill_check=args.skill_check,
         )
 
         print(f"Generated {len(visualizer.path_segments)} movement paths")
