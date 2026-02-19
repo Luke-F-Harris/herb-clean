@@ -151,3 +151,4 @@ bank:
   insert_button_template: bank_insert.png
   menu_button_template: bank_menu.png
   esc_chance: 0.7
+  deposit_click_herb_chance: 0.30  # 30% chance to click herb instead of deposit button

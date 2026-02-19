@@ -472,6 +472,7 @@ class BotMovementVisualizer:
         label: str = "",
         slot_row: Optional[int] = None,
         misclick_rate: float = 0.03,
+        overshoot_undershoot_rate: float = 0.05,
     ) -> tuple[tuple[int, int], float]:
         """Simulate mouse movement to target using bot logic.
 
@@ -485,6 +486,7 @@ class BotMovementVisualizer:
             label: Action label
             slot_row: Inventory row (0-6) for row-aware misclick
             misclick_rate: Probability of misclick
+            overshoot_undershoot_rate: Probability of overshooting/undershooting
 
         Returns:
             (final_position, end_time)
@@ -585,6 +587,12 @@ class BotMovementVisualizer:
             ))
 
             return end, correct_click_time + click_result.duration
+
+        # Check for overshoot/undershoot (5% chance by default)
+        if self._rng.random() < overshoot_undershoot_rate:
+            return self._simulate_overshoot_undershoot(
+                start, target, color, start_time, label
+            )
 
         # Normal click (no misclick)
         click_result = self.click_handler.calculate_click(target)
@@ -690,6 +698,200 @@ class BotMovementVisualizer:
                 return True
         return False
 
+    def _simulate_overshoot_undershoot(
+        self,
+        start: tuple[int, int],
+        target: ClickTarget,
+        color: tuple[int, int, int],
+        start_time: float,
+        label: str = "",
+    ) -> tuple[tuple[int, int], float]:
+        """Simulate overshoot or undershoot when moving to target.
+
+        50% chance of overshooting (going past), 50% undershooting (stopping short).
+        Then corrects to actual target.
+        """
+        click_result = self.click_handler.calculate_click(target)
+        target_x, target_y = click_result.x, click_result.y
+
+        # Calculate direction vector
+        dx = target_x - start[0]
+        dy = target_y - start[1]
+        distance = (dx**2 + dy**2) ** 0.5
+
+        if distance < 10:
+            # Too close, just do normal path
+            end = (target_x, target_y)
+            path = self.bezier.generate_path(start, end, num_points=60)
+            total_time = self.bezier.calculate_movement_time(start, end)
+            delays = self.bezier.get_point_delays(path, total_time)
+            segment = PathSegment(points=path, delays=delays, total_time=total_time,
+                                  color=color, is_overshoot=False, label=label)
+            self.path_segments.append(segment)
+            self.actions.append(SimulatedAction(action_type="move", start_time=start_time,
+                                                end_time=start_time + total_time, data={"segment": segment}))
+            click_time = start_time + total_time
+            self.click_events.append(ClickEvent(x=end[0], y=end[1], timestamp=click_time, duration=click_result.duration))
+            self.actions.append(SimulatedAction(action_type="click", start_time=click_time,
+                                                end_time=click_time + click_result.duration, data={"x": end[0], "y": end[1]}))
+            return end, click_time + click_result.duration
+
+        # Normalize direction
+        norm_dx = dx / distance
+        norm_dy = dy / distance
+
+        # Decide overshoot (50%) or undershoot (50%)
+        is_overshoot = self._rng.random() < 0.5
+        if is_overshoot:
+            extra_dist = self._rng.integers(10, 31)
+            stop_x = int(target_x + norm_dx * extra_dist)
+            stop_y = int(target_y + norm_dy * extra_dist)
+            label_suffix = "OVERSHOOT"
+        else:
+            short_dist = self._rng.integers(10, 26)
+            stop_x = int(target_x - norm_dx * short_dist)
+            stop_y = int(target_y - norm_dy * short_dist)
+            label_suffix = "UNDERSHOOT"
+
+        print(f"  {label_suffix} on: {label}")
+
+        # First movement: to wrong position
+        wrong_path = self.bezier.generate_path(start, (stop_x, stop_y), num_points=60)
+        wrong_time = self.bezier.calculate_movement_time(start, (stop_x, stop_y))
+        wrong_delays = self.bezier.get_point_delays(wrong_path, wrong_time)
+
+        wrong_segment = PathSegment(
+            points=wrong_path, delays=wrong_delays, total_time=wrong_time,
+            color=(255, 200, 100),  # Orange for overshoot/undershoot
+            is_overshoot=False, label=f"{label} ({label_suffix})",
+        )
+        self.path_segments.append(wrong_segment)
+        self.actions.append(SimulatedAction(action_type="move", start_time=start_time,
+                                            end_time=start_time + wrong_time, data={"segment": wrong_segment}))
+
+        # Brief pause (realizing wrong spot)
+        current_time = start_time + wrong_time + self._rng.uniform(0.05, 0.15)
+
+        # Correction movement to actual target
+        end = (target_x, target_y)
+        correction_path = self.bezier.generate_path((stop_x, stop_y), end, num_points=25)
+        correction_time = self.bezier.calculate_movement_time((stop_x, stop_y), end)
+        correction_delays = self.bezier.get_point_delays(correction_path, correction_time)
+
+        correction_segment = PathSegment(
+            points=correction_path, delays=correction_delays, total_time=correction_time,
+            color=self.COLOR_OVERSHOOT, is_overshoot=False, label=f"{label} (CORRECT)",
+        )
+        self.path_segments.append(correction_segment)
+        self.actions.append(SimulatedAction(action_type="move", start_time=current_time,
+                                            end_time=current_time + correction_time, data={"segment": correction_segment}))
+
+        # Click at correct position
+        click_time = current_time + correction_time
+        self.click_events.append(ClickEvent(x=end[0], y=end[1], timestamp=click_time, duration=click_result.duration))
+        self.actions.append(SimulatedAction(action_type="click", start_time=click_time,
+                                            end_time=click_time + click_result.duration, data={"x": end[0], "y": end[1]}))
+
+        return end, click_time + click_result.duration
+
+    def _simulate_accidental_drag(
+        self,
+        start: tuple[int, int],
+        target: ClickTarget,
+        start_time: float,
+        slot_row: int,
+        slot_col: int,
+        slot_width: int,
+        slot_height: int,
+        label: str = "",
+    ) -> tuple[tuple[int, int], float]:
+        """Simulate accidentally dragging a herb toward an adjacent cell.
+
+        This simulates holding the mouse button too long and accidentally dragging.
+        """
+        print(f"  ACCIDENTAL DRAG on: {label}")
+
+        # Calculate click position within target
+        click_result = self.click_handler.calculate_click(target)
+        target_x, target_y = click_result.x, click_result.y
+
+        # First movement: to the herb
+        move_path = self.bezier.generate_path(start, (target_x, target_y), num_points=60)
+        move_time = self.bezier.calculate_movement_time(start, (target_x, target_y))
+        move_delays = self.bezier.get_point_delays(move_path, move_time)
+
+        move_segment = PathSegment(
+            points=move_path, delays=move_delays, total_time=move_time,
+            color=self.COLOR_INVENTORY, is_overshoot=False, label=label,
+        )
+        self.path_segments.append(move_segment)
+        self.actions.append(SimulatedAction(action_type="move", start_time=start_time,
+                                            end_time=start_time + move_time, data={"segment": move_segment}))
+
+        # Click (accidentally holding too long)
+        click_time = start_time + move_time
+        self.click_events.append(ClickEvent(x=target_x, y=target_y, timestamp=click_time, duration=0.15))
+        self.actions.append(SimulatedAction(action_type="click", start_time=click_time,
+                                            end_time=click_time + 0.15, data={"x": target_x, "y": target_y}))
+
+        # Determine adjacent direction
+        directions = []
+        if slot_col > 0:
+            directions.append((-1, 0))
+        if slot_col < 3:
+            directions.append((1, 0))
+        if slot_row > 0:
+            directions.append((0, -1))
+        if slot_row < 6:
+            directions.append((0, 1))
+
+        if not directions:
+            return (target_x, target_y), click_time + 0.15
+
+        dx, dy = directions[self._rng.integers(0, len(directions))]
+        drag_ratio = self._rng.uniform(0.3, 0.7)
+        drag_x = int(target_x + dx * slot_width * drag_ratio)
+        drag_y = int(target_y + dy * slot_height * drag_ratio)
+
+        # Drag movement (while holding)
+        current_time = click_time + 0.08
+        drag_path = self.bezier.generate_path((target_x, target_y), (drag_x, drag_y), num_points=25)
+        drag_time = self.bezier.calculate_movement_time((target_x, target_y), (drag_x, drag_y))
+        drag_delays = self.bezier.get_point_delays(drag_path, drag_time)
+
+        drag_segment = PathSegment(
+            points=drag_path, delays=drag_delays, total_time=drag_time,
+            color=(255, 150, 50),  # Orange for drag
+            is_overshoot=False, label=f"{label} (DRAG)",
+        )
+        self.path_segments.append(drag_segment)
+        self.actions.append(SimulatedAction(action_type="move", start_time=current_time,
+                                            end_time=current_time + drag_time, data={"segment": drag_segment}))
+
+        # Pause (realizing mistake)
+        current_time = current_time + drag_time + self._rng.uniform(0.1, 0.25)
+
+        # Correction: move back and click properly
+        correction_path = self.bezier.generate_path((drag_x, drag_y), (target_x, target_y), num_points=30)
+        correction_time = self.bezier.calculate_movement_time((drag_x, drag_y), (target_x, target_y))
+        correction_delays = self.bezier.get_point_delays(correction_path, correction_time)
+
+        correction_segment = PathSegment(
+            points=correction_path, delays=correction_delays, total_time=correction_time,
+            color=self.COLOR_OVERSHOOT, is_overshoot=False, label=f"{label} (CORRECT)",
+        )
+        self.path_segments.append(correction_segment)
+        self.actions.append(SimulatedAction(action_type="move", start_time=current_time,
+                                            end_time=current_time + correction_time, data={"segment": correction_segment}))
+
+        # Correct click
+        final_click_time = current_time + correction_time
+        self.click_events.append(ClickEvent(x=target_x, y=target_y, timestamp=final_click_time, duration=click_result.duration))
+        self.actions.append(SimulatedAction(action_type="click", start_time=final_click_time,
+                                            end_time=final_click_time + click_result.duration, data={"x": target_x, "y": target_y}))
+
+        return (target_x, target_y), final_click_time + click_result.duration
+
     def simulate_full_cycle(
         self,
         bank_booth_pos: Optional[tuple[int, int]] = None,
@@ -768,15 +970,37 @@ class BotMovementVisualizer:
 
         # === STATE: BANKING_DEPOSIT (if has clean herbs) ===
         if has_clean_herbs:
-            deposit_target = ClickTarget(
-                center_x=deposit_button_pos[0],
-                center_y=deposit_button_pos[1],
-                width=35, height=25,
-            )
-            current_pos, current_time = self._simulate_move_to_target(
-                current_pos, deposit_target, self.COLOR_DEPOSIT, current_time,
-                label="Deposit herbs"
-            )
+            # Randomize deposit method: deposit button vs click clean herb (30% herb click)
+            deposit_click_herb_chance = self.config.get("bank.deposit_click_herb_chance", 0.30)
+            use_herb_click = self._rng.random() < deposit_click_herb_chance
+
+            if use_herb_click and inventory_slots:
+                # Click a random "clean herb" slot (pick from first 28 slots)
+                herb_slot_idx = self._rng.integers(0, min(28, len(inventory_slots)))
+                herb_slot_pos = inventory_slots[herb_slot_idx]
+                inv_cfg = self.config.window.get("inventory", {})
+                deposit_target = ClickTarget(
+                    center_x=herb_slot_pos[0],
+                    center_y=herb_slot_pos[1],
+                    width=inv_cfg.get("slot_width", 42),
+                    height=inv_cfg.get("slot_height", 36),
+                )
+                print(f"  Depositing by clicking clean herb at slot {herb_slot_idx}")
+                current_pos, current_time = self._simulate_move_to_target(
+                    current_pos, deposit_target, self.COLOR_DEPOSIT, current_time,
+                    label=f"Deposit herb (slot {herb_slot_idx})"
+                )
+            else:
+                # Click deposit button
+                deposit_target = ClickTarget(
+                    center_x=deposit_button_pos[0],
+                    center_y=deposit_button_pos[1],
+                    width=35, height=25,
+                )
+                current_pos, current_time = self._simulate_move_to_target(
+                    current_pos, deposit_target, self.COLOR_DEPOSIT, current_time,
+                    label="Deposit herbs"
+                )
             post_deposit_delay = self.timing.get_post_action_delay(ActionType.DEPOSIT)
             current_time = self._add_delay(current_time, post_deposit_delay)
 
@@ -848,22 +1072,41 @@ class BotMovementVisualizer:
             print(f"  Skipped slots: {sorted(slots_to_skip)}")
 
         inv_cfg = self.config.window.get("inventory", {})
+        slot_width = inv_cfg.get("slot_width", 42)
+        slot_height = inv_cfg.get("slot_height", 36)
+        accidental_drag_chance = self.config.get("cleaning.accidental_drag_chance", 0.05)
+        overshoot_undershoot_rate = self.config.get("cleaning.overshoot_undershoot_rate", 0.05)
+
         for count, slot_idx in enumerate(traversal_order):
             slot_pos = inventory_slots[slot_idx]
             slot_row = slot_idx // 4  # Calculate row (0-6) from slot index
+            slot_col = slot_idx % 4   # Calculate column (0-3) from slot index
 
             slot_target = ClickTarget(
                 center_x=slot_pos[0],
                 center_y=slot_pos[1],
-                width=inv_cfg.get("slot_width", 42),
-                height=inv_cfg.get("slot_height", 36),
+                width=slot_width,
+                height=slot_height,
             )
-            current_pos, current_time = self._simulate_move_to_target(
-                current_pos, slot_target, self.COLOR_INVENTORY, current_time,
-                label=f"Clean herb {count+1} (slot {slot_idx})",
-                slot_row=slot_row,
-                misclick_rate=0.03,  # 3% misclick rate
-            )
+
+            # Check for accidental drag (5% chance, only on middle rows)
+            allow_drag = 0 < slot_row < 6
+            if allow_drag and self._rng.random() < accidental_drag_chance:
+                # Simulate accidental drag
+                current_pos, current_time = self._simulate_accidental_drag(
+                    current_pos, slot_target, current_time,
+                    slot_row, slot_col, slot_width, slot_height,
+                    label=f"Clean herb {count+1} (slot {slot_idx})",
+                )
+            else:
+                # Normal click (with possible misclick or overshoot/undershoot)
+                current_pos, current_time = self._simulate_move_to_target(
+                    current_pos, slot_target, self.COLOR_INVENTORY, current_time,
+                    label=f"Clean herb {count+1} (slot {slot_idx})",
+                    slot_row=slot_row,
+                    misclick_rate=0.03,  # 3% misclick rate
+                    overshoot_undershoot_rate=overshoot_undershoot_rate,
+                )
 
             # Delay between herb clicks (timing.get_delay(ActionType.CLICK_HERB))
             herb_delay = self.timing.get_delay(ActionType.CLICK_HERB)

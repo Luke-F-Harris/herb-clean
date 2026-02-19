@@ -353,10 +353,45 @@ class BotController:
             time.sleep(0.5)
 
     def _handle_banking_deposit(self) -> None:
-        """Handle depositing cleaned herbs."""
+        """Handle depositing cleaned herbs.
+
+        Randomly chooses between clicking the deposit button or clicking
+        one of the cleaned herbs in the inventory for human-like variation.
+        """
         self._logger.debug("Depositing herbs...")
 
-        # Find deposit button
+        # Randomize deposit method: deposit button vs click clean herb
+        click_herb_chance = self.config.get("bank.deposit_click_herb_chance", 0.30)
+        use_herb_click = self._rng.random() < click_herb_chance
+
+        if use_herb_click:
+            # Try to click a random clean herb in inventory
+            clean_slots = [s for s in self.inventory.slots if s.state.value == "clean_herb"]
+            if clean_slots:
+                # Pick a random clean herb slot
+                chosen_slot = clean_slots[self._rng.integers(0, len(clean_slots))]
+                screen_x, screen_y = self.inventory.get_slot_screen_coords(chosen_slot.index)
+
+                inv_config = self.config.window.get("inventory", {})
+                target = ClickTarget(
+                    center_x=screen_x,
+                    center_y=screen_y,
+                    width=inv_config.get("slot_width", 42),
+                    height=inv_config.get("slot_height", 36),
+                )
+
+                self._logger.debug(f"Depositing by clicking clean herb at slot {chosen_slot.index}")
+                completed, _ = self.mouse.click_at_target(
+                    target,
+                    misclick_rate=self.fatigue.get_misclick_rate(),
+                )
+
+                if completed:
+                    time.sleep(self.timing.get_post_action_delay(ActionType.DEPOSIT))
+                    self.state_machine.withdraw_herbs()
+                return
+
+        # Default: click deposit button
         deposit_match = self.bank.find_deposit_button()
         if not deposit_match or not deposit_match.found:
             self._logger.warning("Could not find deposit button")
@@ -488,21 +523,40 @@ class BotController:
 
         # Create click target
         inv_config = self.config.window.get("inventory", {})
+        slot_width = inv_config.get("slot_width", 42)
+        slot_height = inv_config.get("slot_height", 36)
         target = ClickTarget(
             center_x=screen_x,
             center_y=screen_y,
-            width=inv_config.get("slot_width", 42),
-            height=inv_config.get("slot_height", 36),
+            width=slot_width,
+            height=slot_height,
         )
 
         # Click the herb
         start_time = time.time()
 
-        completed, was_misclick = self.mouse.click_at_target(
-            target,
-            misclick_rate=self.fatigue.get_misclick_rate(),
-            slot_row=slot.row,
-        )
+        # Check for accidental drag (5% chance, only on middle rows)
+        accidental_drag_chance = self.config.get("cleaning.accidental_drag_chance", 0.05)
+        allow_drag = 0 < slot.row < 6  # Only middle rows
+
+        if allow_drag and self._rng.random() < accidental_drag_chance:
+            # Accidental drag - hold mouse too long and drag toward adjacent cell
+            self._logger.debug(f"Accidental drag on slot {slot.index}")
+            completed = self.mouse.accidental_drag_to_adjacent(
+                target=target,
+                slot_row=slot.row,
+                slot_col=slot.col,
+                slot_width=slot_width,
+                slot_height=slot_height,
+            )
+            was_misclick = False  # Not a misclick, but a drag
+        else:
+            # Normal click
+            completed, was_misclick = self.mouse.click_at_target(
+                target,
+                misclick_rate=self.fatigue.get_misclick_rate(),
+                slot_row=slot.row,
+            )
 
         if was_misclick:
             self.session.record_misclick()

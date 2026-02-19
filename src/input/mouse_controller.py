@@ -239,6 +239,7 @@ class MouseController:
         button: Button = Button.left,
         misclick_rate: float = 0.0,
         slot_row: Optional[int] = None,
+        overshoot_undershoot_rate: float = 0.05,
     ) -> tuple[bool, bool]:
         """Move to target and click with randomization.
 
@@ -247,6 +248,7 @@ class MouseController:
             button: Mouse button
             misclick_rate: Probability of misclick
             slot_row: Inventory row (0-6) for row-aware misclick correction
+            overshoot_undershoot_rate: Probability of overshooting/undershooting
 
         Returns:
             (completed, was_misclick) tuple
@@ -302,6 +304,12 @@ class MouseController:
 
             return True, was_misclick
 
+        # Check for overshoot/undershoot (5% chance by default)
+        if self._rng.random() < overshoot_undershoot_rate:
+            return self._click_with_overshoot_undershoot(
+                target, x, y, click_result.duration, button
+            )
+
         # Normal click (no misclick or not allowed on this row)
         if not self.move_to(x, y):
             return False, was_misclick
@@ -315,6 +323,79 @@ class MouseController:
         self._post_click_drift()
 
         return True, was_misclick
+
+    def _click_with_overshoot_undershoot(
+        self,
+        target: ClickTarget,
+        target_x: int,
+        target_y: int,
+        click_duration: float,
+        button: Button = Button.left,
+    ) -> tuple[bool, bool]:
+        """Perform click with overshoot or undershoot correction.
+
+        50% chance of overshooting (going past target), 50% undershooting.
+        Then corrects to the actual target position.
+
+        Returns:
+            (completed, was_misclick) tuple - was_misclick is always False
+        """
+        current_pos = self.position
+
+        # Calculate direction vector from current to target
+        dx = target_x - current_pos[0]
+        dy = target_y - current_pos[1]
+        distance = (dx**2 + dy**2) ** 0.5
+
+        if distance < 10:
+            # Too close, just do normal click
+            if not self.move_to(target_x, target_y):
+                return False, False
+            self._mouse.press(button)
+            time.sleep(click_duration)
+            self._mouse.release(button)
+            self._post_click_drift()
+            return True, False
+
+        # Normalize direction
+        norm_dx = dx / distance
+        norm_dy = dy / distance
+
+        # Decide overshoot (50%) or undershoot (50%)
+        is_overshoot = self._rng.random() < 0.5
+
+        if is_overshoot:
+            # Go 10-30 pixels past the target
+            extra_dist = self._rng.integers(10, 31)
+            stop_x = int(target_x + norm_dx * extra_dist)
+            stop_y = int(target_y + norm_dy * extra_dist)
+        else:
+            # Stop 10-25 pixels short of target
+            short_dist = self._rng.integers(10, 26)
+            stop_x = int(target_x - norm_dx * short_dist)
+            stop_y = int(target_y - norm_dy * short_dist)
+
+        # Move to the wrong position
+        if not self.move_to(stop_x, stop_y):
+            return False, False
+
+        # Brief pause (realizing we're in wrong spot)
+        time.sleep(self._rng.uniform(0.05, 0.15))
+
+        # Correct to actual target
+        corrected = self.click_handler.calculate_click(target)
+        if not self.move_to(corrected.x, corrected.y, num_points=25):
+            return False, False
+
+        # Click at correct position
+        self._mouse.press(button)
+        time.sleep(click_duration)
+        self._mouse.release(button)
+
+        # Post-click drift
+        self._post_click_drift()
+
+        return True, False
 
     def right_click(self) -> bool:
         """Perform a right click at current position."""
@@ -361,6 +442,99 @@ class MouseController:
         self._mouse.release(button)
 
         return result
+
+    def accidental_drag_to_adjacent(
+        self,
+        target: ClickTarget,
+        slot_row: int,
+        slot_col: int,
+        slot_width: int,
+        slot_height: int,
+        button: Button = Button.left,
+    ) -> bool:
+        """Accidentally drag item toward an adjacent inventory cell.
+
+        Simulates holding the mouse button too long while clicking,
+        resulting in an accidental drag toward a neighboring cell.
+
+        Args:
+            target: Click target (the item to accidentally drag)
+            slot_row: Current slot row (0-6)
+            slot_col: Current slot column (0-3)
+            slot_width: Width of inventory slot
+            slot_height: Height of inventory slot
+            button: Mouse button to use
+
+        Returns:
+            True if completed
+        """
+        if self._stop_flag:
+            return False
+
+        # Calculate click position within target
+        click_result = self.click_handler.calculate_click(target)
+        x, y = click_result.x, click_result.y
+
+        # Move to the item
+        if not self.move_to(x, y):
+            return False
+
+        # Determine possible adjacent directions (avoid going off-grid)
+        directions = []
+        if slot_col > 0:
+            directions.append((-1, 0))  # Left
+        if slot_col < 3:
+            directions.append((1, 0))   # Right
+        if slot_row > 0:
+            directions.append((0, -1))  # Up
+        if slot_row < 6:
+            directions.append((0, 1))   # Down
+
+        if not directions:
+            # Shouldn't happen but fallback to normal click
+            self._mouse.press(button)
+            time.sleep(click_result.duration)
+            self._mouse.release(button)
+            return True
+
+        # Pick random adjacent direction
+        dx, dy = directions[self._rng.integers(0, len(directions))]
+
+        # Calculate drag distance (partial distance toward adjacent cell)
+        # Drag 30-70% of the way to the adjacent cell
+        drag_ratio = self._rng.uniform(0.3, 0.7)
+        drag_x = int(dx * slot_width * drag_ratio)
+        drag_y = int(dy * slot_height * drag_ratio)
+
+        # Press and hold (accidentally holding too long)
+        self._mouse.press(button)
+
+        # Brief hold before accidental drag starts
+        time.sleep(self._rng.uniform(0.08, 0.15))
+
+        # Drag toward adjacent cell
+        if not self.move_to(x + drag_x, y + drag_y, num_points=25):
+            self._mouse.release(button)
+            return False
+
+        # Release (realizing the mistake)
+        self._mouse.release(button)
+
+        # Brief pause (human reaction to mistake)
+        time.sleep(self._rng.uniform(0.1, 0.25))
+
+        # Move back and click correctly
+        if not self.move_to(x, y, num_points=30):
+            return False
+
+        self._mouse.press(button)
+        time.sleep(click_result.duration)
+        self._mouse.release(button)
+
+        # Post-click drift
+        self._post_click_drift()
+
+        return True
 
     def scroll(self, clicks: int) -> bool:
         """Scroll mouse wheel.
