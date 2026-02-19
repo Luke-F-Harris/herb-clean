@@ -29,6 +29,34 @@ def draw_position_marker(image, x, y, width, height, label, color):
     cv2.putText(image, pos_text, (x, y + height + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
 
 
+def get_positions_for_screenshot(filename):
+    """Return the positions to highlight based on screenshot context."""
+    # Position definitions (from skill_checker.py)
+    skills_tab = (509, 205, 30, 30, "Skills Tab", (255, 255, 0))      # Cyan
+    inventory_tab = (571, 205, 30, 30, "Inventory Tab", (0, 255, 0))  # Green
+
+    # Herblore position (calculated)
+    panel_x, panel_y = 550, 210
+    skill_w, skill_h = 58, 32
+    herblore_row, herblore_col = 2, 1
+    herblore_x = panel_x + (herblore_col * skill_w)
+    herblore_y = panel_y + (herblore_row * skill_h)
+    herblore_skill = (herblore_x, herblore_y, skill_w, skill_h, "Herblore", (255, 0, 255))  # Purple
+
+    # Context-specific positions
+    if filename == "skills_tab_view.png":
+        # Skills panel is open - need inventory tab and herblore skill
+        return [inventory_tab, herblore_skill]
+    elif filename == "herblore_skill_hover.png":
+        # Skills panel is open with hover - need inventory tab and herblore skill
+        return [inventory_tab, herblore_skill]
+    elif filename == "world_view.png":
+        # Main game view - need skills tab to open skills panel
+        return [skills_tab]
+    else:
+        return []
+
+
 def test_on_screenshot(screenshot_path, output_path):
     """Test positions on a single screenshot."""
     image = cv2.imread(str(screenshot_path))
@@ -38,21 +66,11 @@ def test_on_screenshot(screenshot_path, output_path):
 
     print(f"  Image size: {image.shape[1]}x{image.shape[0]}")
 
-    # Define positions to test (from skill_checker.py)
-    positions = [
-        # (x, y, width, height, label, color)
-        (509, 205, 30, 30, "Skills Tab", (255, 255, 0)),    # Cyan
-        (571, 205, 30, 30, "Inventory Tab", (0, 255, 0)),   # Green
-        (550, 210, 58*3, 32*8, "Skills Panel", (128, 128, 128)),  # Gray outline
-    ]
-
-    # Herblore position (calculated)
-    panel_x, panel_y = 550, 210
-    skill_w, skill_h = 58, 32
-    herblore_row, herblore_col = 2, 1
-    herblore_x = panel_x + (herblore_col * skill_w)
-    herblore_y = panel_y + (herblore_row * skill_h)
-    positions.append((herblore_x, herblore_y, skill_w, skill_h, "Herblore", (255, 0, 255)))  # Purple
+    # Get context-specific positions for this screenshot
+    positions = get_positions_for_screenshot(screenshot_path.name)
+    if not positions:
+        print(f"  SKIP: No positions defined for {screenshot_path.name}")
+        return False
 
     # Draw all positions
     for x, y, w, h, label, color in positions:
@@ -87,7 +105,7 @@ def main():
     test_screenshots = [
         "skills_tab_view.png",
         "herblore_skill_hover.png",
-        "inventory_grimy.png",  # For reference
+        "world_view.png",
     ]
 
     loaded = 0
