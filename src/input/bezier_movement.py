@@ -558,7 +558,6 @@ class BezierMovement:
             "ease_in_out": self._ease_in_out,
             "ease_in": self._ease_in,
             "ease_out": self._ease_out,
-            "linear": self._linear,
             "ease_in_out_back": self._ease_in_out_back,
         }
 
