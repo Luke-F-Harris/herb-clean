@@ -701,6 +701,8 @@ class BotMovementVisualizer:
             return
         radius = int(8 + age * 20)
         temp_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        pygame.draw.circle(temp_surface, (*self.COLOR_CLICK, alpha), pos, radius, 2)
+        self.screen.blit(temp_surface, (0, 0))
 
     def draw_debug_targets(self):
         """Draw rectangles around all click targets for debugging."""
@@ -723,8 +725,6 @@ class BotMovementVisualizer:
             if label:
                 label_surface = self.font.render(label, True, color)
                 self.screen.blit(label_surface, (rect.x, rect.y - 18))
-        pygame.draw.circle(temp_surface, (*self.COLOR_CLICK, alpha), pos, radius, 2)
-        self.screen.blit(temp_surface, (0, 0))
 
     def draw_keypress_list(self, visible_keypresses: list[KeypressEvent]):
         """Draw keypress events in bottom-left corner."""
