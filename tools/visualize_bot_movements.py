@@ -49,6 +49,10 @@ TimingRandomizer = _timing_mod.TimingRandomizer
 ActionType = _timing_mod.ActionType
 TimingConfig = _timing_mod.TimingConfig
 
+_traversal_mod = _load_module_direct("inventory_traversal", _src_dir / "vision" / "inventory_traversal.py")
+InventoryTraversal = _traversal_mod.InventoryTraversal
+TraversalPattern = _traversal_mod.TraversalPattern
+
 # Try to load vision modules for position detection
 try:
     _template_mod = _load_module_direct("template_matcher", _src_dir / "vision" / "template_matcher.py")
@@ -232,6 +236,13 @@ class BotMovementVisualizer:
 
         # Bank ESC chance from config
         self.esc_chance = self.config.get("bank.esc_chance", 0.70)
+
+        # Traversal pattern generator
+        traversal_cfg = self.config.get("traversal", {}) or {}
+        self.traversal = InventoryTraversal(
+            enabled_patterns=traversal_cfg.get("enabled_patterns"),
+            pattern_weights=traversal_cfg.get("pattern_weights"),
+        )
 
         self._rng = np.random.default_rng()
 
@@ -705,11 +716,23 @@ class BotMovementVisualizer:
         self._add_state_transition(current_time, GameState.INVENTORY_GRIMY)
 
         # === STATE: CLEANING ===
-        # Click each grimy herb in inventory
+        # Click grimy herbs using randomized traversal pattern
         herbs_to_clean = min(num_grimy_herbs, len(inventory_slots))
-        for i in range(herbs_to_clean):
-            slot_pos = inventory_slots[i]
-            inv_cfg = self.config.window.get("inventory", {})
+
+        # Select random traversal pattern (same as real bot)
+        pattern = self.traversal.random_pattern()
+        traversal_order = self.traversal.generate_order(pattern)
+
+        # Filter to only slots with grimy herbs (first N slots)
+        grimy_indices = set(range(herbs_to_clean))
+        traversal_order = [i for i in traversal_order if i in grimy_indices]
+
+        print(f"  Using traversal pattern: {pattern.value}")
+        print(f"  First 8 slots in order: {traversal_order[:8]}")
+
+        inv_cfg = self.config.window.get("inventory", {})
+        for count, slot_idx in enumerate(traversal_order):
+            slot_pos = inventory_slots[slot_idx]
 
             slot_target = ClickTarget(
                 center_x=slot_pos[0],
@@ -719,7 +742,7 @@ class BotMovementVisualizer:
             )
             current_pos, current_time = self._simulate_move_to_target(
                 current_pos, slot_target, self.COLOR_INVENTORY, current_time,
-                label=f"Clean herb {i+1}"
+                label=f"Clean herb {count+1} (slot {slot_idx})"
             )
 
             # Delay between herb clicks (timing.get_delay(ActionType.CLICK_HERB))
