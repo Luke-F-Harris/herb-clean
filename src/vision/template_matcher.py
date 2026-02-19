@@ -305,18 +305,21 @@ class TemplateMatcher:
         image: np.ndarray,
         template_name: str,
         region_percentage: float = 0.70,  # Balance: avoid stack text but keep enough template
-        method: int = cv2.TM_CCOEFF_NORMED,
+        method: int = cv2.TM_CCORR_NORMED,  # Use CCORR_NORMED - supports masks
     ) -> MatchResult:
         """Match template using only bottom portion of image/template.
 
         This is useful for bank items where stack numbers overlay
         the top portion of the item icon.
 
+        Uses TM_CCORR_NORMED by default since it supports mask-based matching,
+        which ignores transparent pixels in the template.
+
         Args:
             image: BGR image to search in
             template_name: Template filename to search for
             region_percentage: Percentage of height to use (0.0-1.0), default 0.70
-            method: OpenCV template matching method
+            method: OpenCV template matching method (must support masks for transparency)
 
         Returns:
             MatchResult with adjusted coordinates
