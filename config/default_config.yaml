@@ -143,6 +143,22 @@ cleaning:
     movements: [1, 3]           # 1-3 extra movements
   missed_click:
     correction_delay: [0.15, 0.35]  # Reaction time before correction
+traversal:
+  enabled_patterns:
+    - row_ltr
+    - row_rtl
+    - row_ltr_bottom
+    - row_rtl_bottom
+    - col_ttb
+    - col_btt
+    - col_ttb_right
+    - col_btt_right
+    - zigzag_horizontal
+    - zigzag_vertical
+    - spiral_inward
+  # Explicitly NOT including:
+  # - random_shuffle (too chaotic, detectable)
+  # - weighted_nearest (requires special handling)
 bank:
   booth_template: bank_booth.png
   chest_template: bank_chest.png
