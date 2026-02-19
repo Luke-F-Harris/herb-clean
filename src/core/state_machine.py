@@ -10,6 +10,7 @@ class BotState(Enum):
     """Bot states."""
 
     IDLE = "idle"
+    ASSESS_STATE = "assess_state"
     BANKING_OPEN = "banking_open"
     BANKING_DEPOSIT = "banking_deposit"
     BANKING_WITHDRAW = "banking_withdraw"
@@ -27,6 +28,7 @@ class HerbCleaningStateMachine(StateMachine):
 
     # States
     idle = State(initial=True)
+    assess_state = State()
     banking_open = State()
     banking_deposit = State()
     banking_withdraw = State()
@@ -38,8 +40,17 @@ class HerbCleaningStateMachine(StateMachine):
     error = State()
     stopped = State(final=True)
 
+    # Assessment transitions (IDLE always goes through assessment first)
+    start_assessment = idle.to(assess_state)
+
+    # From assessment to appropriate state
+    assessment_to_banking = assess_state.to(banking_open)
+    assessment_to_cleaning = assess_state.to(cleaning)
+    assessment_to_deposit = assess_state.to(banking_deposit)
+    assessment_to_withdraw = assess_state.to(banking_withdraw)
+
     # Normal flow transitions
-    start_banking = idle.to(banking_open) | cleaning.to(banking_open)
+    start_banking = cleaning.to(banking_open)
     deposit_herbs = banking_open.to(banking_deposit)
     withdraw_herbs = banking_deposit.to(banking_withdraw)
     close_bank = banking_withdraw.to(banking_close)
@@ -70,6 +81,7 @@ class HerbCleaningStateMachine(StateMachine):
     # Emergency stop (from any state)
     emergency = (
         idle.to(emergency_stop)
+        | assess_state.to(emergency_stop)
         | banking_open.to(emergency_stop)
         | banking_deposit.to(emergency_stop)
         | banking_withdraw.to(emergency_stop)
@@ -83,6 +95,7 @@ class HerbCleaningStateMachine(StateMachine):
     # Error transitions
     handle_error = (
         idle.to(error)
+        | assess_state.to(error)
         | banking_open.to(error)
         | banking_deposit.to(error)
         | banking_withdraw.to(error)

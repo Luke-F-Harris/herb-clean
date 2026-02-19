@@ -362,6 +362,8 @@ class BotController:
         """
         if state == BotState.IDLE:
             self._handle_idle()
+        elif state == BotState.ASSESS_STATE:
+            self._handle_assess_state()
         elif state == BotState.BANKING_OPEN:
             self._handle_banking_open()
         elif state == BotState.BANKING_DEPOSIT:
@@ -376,9 +378,106 @@ class BotController:
             self._handle_error()
 
     def _handle_idle(self) -> None:
-        """Handle idle state - start banking."""
-        self._logger.debug("Idle -> Starting bank sequence")
-        self.state_machine.start_banking()
+        """Handle idle state - assess game state."""
+        self._logger.debug("Idle -> Assessing game state")
+        self.state_machine.start_assessment()
+
+    def _handle_assess_state(self) -> None:
+        """Assess current game state and transition appropriately."""
+        self._logger.debug("Assessing game state...")
+
+        # Attempt to detect bank state
+        try:
+            bank_is_open = self.bank.is_bank_open()
+        except Exception as e:
+            self._logger.error(f"Failed to detect bank state: {e}")
+            self._trigger_failsafe("Bank detection failed")
+            return
+
+        # If bank is open, proceed with banking
+        if bank_is_open:
+            self._logger.info("Bank is already open")
+            self.inventory.detect_inventory_state()
+
+            if not self.inventory.is_inventory_empty():
+                self.state_machine.assessment_to_deposit()
+            else:
+                self.state_machine.assessment_to_withdraw()
+            return
+
+        # Bank is closed - check inventory state
+        self.inventory.detect_inventory_state()
+
+        if self.inventory.has_grimy_herbs():
+            # Has grimy herbs, go straight to cleaning
+            self._logger.info("Inventory has grimy herbs, starting cleaning")
+            self.state_machine.assessment_to_cleaning()
+        else:
+            # No grimy herbs, need to bank
+            self._logger.info("No grimy herbs, opening bank")
+            self.state_machine.assessment_to_banking()
+
+    def _trigger_failsafe(self, reason: str) -> None:
+        """Stop all movement, capture diagnostics, and transition to error state.
+
+        Args:
+            reason: Description of what triggered the failsafe
+        """
+        self._logger.warning(f"FAILSAFE TRIGGERED: {reason}")
+
+        # Immediately stop all input
+        self.mouse.set_stop_flag(True)
+        self.keyboard.set_stop_flag(True)
+
+        # Capture screenshot and state for debugging
+        self._capture_failure_diagnostics(reason)
+
+        # Transition to error state
+        self.state_machine.set_error(f"Failsafe: {reason}")
+        if self.state_machine.can_transition_to("error"):
+            self.state_machine.handle_error()
+
+    def _capture_failure_diagnostics(self, reason: str) -> None:
+        """Capture screenshot and state info when failure occurs.
+
+        Args:
+            reason: Description of the failure
+        """
+        from datetime import datetime
+        from pathlib import Path
+
+        # Create failures directory if needed
+        failures_dir = Path("logs/failures")
+        failures_dir.mkdir(parents=True, exist_ok=True)
+
+        # Timestamp for unique filenames
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Capture screenshot
+        try:
+            screenshot = self.screen.capture()
+            if screenshot is not None:
+                screenshot_path = failures_dir / f"failure_{timestamp}.png"
+                import cv2
+                cv2.imwrite(str(screenshot_path), screenshot)
+                self._logger.info(f"Failure screenshot saved: {screenshot_path}")
+        except Exception as e:
+            self._logger.error(f"Failed to capture screenshot: {e}")
+
+        # Write failure log with state info
+        try:
+            log_path = failures_dir / f"failure_{timestamp}.txt"
+            with open(log_path, "w") as f:
+                f.write(f"Failure Time: {datetime.now().isoformat()}\n")
+                f.write(f"Reason: {reason}\n")
+                f.write(f"Current State: {self.state_machine.get_current_state().value}\n")
+                f.write(f"State History: {self.state_machine.get_state_history()[-10:]}\n")
+                f.write(f"Session Stats: {self.session.get_status_string()}\n")
+                f.write(f"Fatigue Level: {self.fatigue.get_fatigue_level():.2f}\n")
+                f.write(f"Error Count: {self.state_machine.get_error_count()}\n")
+            self._logger.info(f"Failure log saved: {log_path}")
+        except Exception as e:
+            self._logger.error(f"Failed to write failure log: {e}")
 
     def _handle_banking_open(self) -> None:
         """Handle opening the bank."""
@@ -414,9 +513,9 @@ class BotController:
         if self.bank.is_bank_open():
             time.sleep(self.timing.get_post_action_delay(ActionType.OPEN_BANK))
 
-            # Check if we have herbs to deposit
+            # Check if inventory has any items to deposit
             self.inventory.detect_inventory_state()
-            if self.inventory.count_clean_herbs() > 0:
+            if not self.inventory.is_inventory_empty():
                 self.state_machine.deposit_herbs()
             else:
                 self.state_machine.skip_deposit()
