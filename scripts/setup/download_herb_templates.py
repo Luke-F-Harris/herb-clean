@@ -197,9 +197,10 @@ def download_herb_templates(output_dir: Path):
 
 def main():
     """Main entry point."""
-    # Determine templates directory
+    # Determine templates directory (relative to project root, not script location)
     script_dir = Path(__file__).parent
-    templates_dir = script_dir / "config" / "templates"
+    project_root = script_dir.parent.parent  # scripts/setup -> scripts -> project root
+    templates_dir = project_root / "config" / "templates"
 
     print("\nThis script will download herb icon images from the OSRS Wiki.")
     print("Source: https://oldschool.runescape.wiki")
