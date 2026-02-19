@@ -80,7 +80,7 @@ def main():
         # Check for template
         template_path = None
         if template_name:
-            template_path = Path(__file__).parent / "config" / "templates" / template_name
+            template_path = project_root / "config" / "templates" / template_name
             if template_path.exists():
                 print(f"  ✓ Found template: {template_path}")
             else:
