@@ -33,8 +33,15 @@ class MovementConfig:
     speed_variation_enabled: bool = True
     easing_functions: tuple[str, ...] = ("ease_in_out", "ease_in", "ease_out", "linear", "ease_in_out_back")
     easing_weights: tuple[float, ...] = (0.50, 0.15, 0.15, 0.10, 0.10)
-    micro_pause_chance: float = 0.20
-    micro_pause_duration: tuple[float, float] = (0.02, 0.08)
+    micro_pause_chance: float = 0.25
+    micro_pause_duration: tuple[float, float] = (0.03, 0.12)
+
+    # Exaggerated speed variation (more noticeable accel/decel)
+    min_speed_factor: float = 0.2   # Slowest parts are 5x slower
+    max_speed_factor: float = 1.5   # Fastest parts are 1.5x faster
+    burst_chance: float = 0.15      # Chance of sudden speed burst
+    burst_speed_multiplier: float = 1.8
+    burst_duration_ratio: float = 0.15
 
 
 @dataclass
@@ -473,7 +480,7 @@ class BezierMovement:
         """Calculate delays between path points for natural movement.
 
         Uses variable timing: slower at start/end, faster in middle.
-        Includes optional micro-pauses for more human-like hesitation.
+        Includes optional micro-pauses and speed bursts for human-like variation.
 
         Args:
             path: List of path points
@@ -506,18 +513,47 @@ class BezierMovement:
                 self.config.micro_pause_duration[1]
             )
 
+        # Determine if we add a speed burst (sudden acceleration)
+        add_burst = (
+            self.config.speed_variation_enabled
+            and self._rng.random() < self.config.burst_chance
+        )
+        burst_start = -1
+        burst_end = -1
+
+        if add_burst and num_segments > 10:
+            # Place burst in middle portion
+            burst_length = int(num_segments * self.config.burst_duration_ratio)
+            burst_start = self._rng.integers(
+                int(num_segments * 0.25),
+                int(num_segments * 0.65)
+            )
+            burst_end = min(burst_start + burst_length, num_segments)
+
+        # Calculate speed factor range
+        min_factor = self.config.min_speed_factor
+        max_factor = self.config.max_speed_factor
+        factor_range = max_factor - min_factor
+
         for i in range(num_segments):
-            # Variable speed along path
+            # Variable speed along path using sine curve
+            # Creates pronounced slow-fast-slow pattern
             progress = i / num_segments
-            # Slower at start and end
-            speed_factor = 0.5 + 0.5 * math.sin(progress * math.pi)
-            speed_factor = max(0.3, speed_factor)  # Minimum speed
+
+            # Sinusoidal speed curve: slow at edges, fast in middle
+            # Map from [0, 1] sine output to [min_factor, max_factor]
+            sine_val = math.sin(progress * math.pi)
+            speed_factor = min_factor + factor_range * sine_val
+
+            # Apply speed burst if in burst region
+            if burst_start <= i < burst_end:
+                speed_factor *= self.config.burst_speed_multiplier
 
             base_delay = total_time / num_segments
             delay = base_delay / speed_factor
 
-            # Add small random variation
-            delay *= self._rng.uniform(0.9, 1.1)
+            # Add random variation (more pronounced)
+            delay *= self._rng.uniform(0.85, 1.15)
 
             # Add micro-pause at designated point
             if i == micro_pause_index:

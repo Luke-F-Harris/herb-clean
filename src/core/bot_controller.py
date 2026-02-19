@@ -77,13 +77,38 @@ class BotController:
         cleaning_cfg = self.config.get_section("cleaning")
         hesitation_cfg = cleaning_cfg.get("hesitation", {})
         missed_click_cfg = cleaning_cfg.get("missed_click", {})
+        path_cfg = self.config.get_section("path")
+        speed_var_cfg = mouse_cfg.get("speed_variation", {})
+        jitter_cfg = mouse_cfg.get("jitter", {})
+        imperfection_cfg = mouse_cfg.get("imperfection", {})
+        micro_corr_cfg = imperfection_cfg.get("micro_correction", {})
+        micro_pause_cfg = speed_var_cfg.get("micro_pause", {})
 
         self.mouse = MouseController(
             movement_config=MovementConfig(
-                speed_range=tuple(mouse_cfg.get("speed_range", [200, 400])),
-                overshoot_chance=mouse_cfg.get("overshoot_chance", 0.30),
-                overshoot_distance=tuple(mouse_cfg.get("overshoot_distance", [5, 15])),
-                curve_variance=mouse_cfg.get("curve_variance", 0.3),
+                speed_range=tuple(mouse_cfg.get("speed_range", [800, 1400])),
+                overshoot_chance=path_cfg.get("overshoot_chance", mouse_cfg.get("overshoot_chance", 0.30)),
+                overshoot_distance=tuple(path_cfg.get("overshoot_distance", mouse_cfg.get("overshoot_distance", [5, 15]))),
+                curve_variance=path_cfg.get("curve_variance", mouse_cfg.get("curve_variance", 0.3)),
+                # Jitter settings
+                jitter_enabled=jitter_cfg.get("enabled", True),
+                jitter_radius=tuple(jitter_cfg.get("radius", [1.0, 3.0])),
+                jitter_points=jitter_cfg.get("points", 3),
+                # Imperfection settings
+                imperfection_enabled=imperfection_cfg.get("enabled", True),
+                simple_curve_chance=imperfection_cfg.get("simple_curve_chance", 0.15),
+                control_point_variance=imperfection_cfg.get("control_point_variance", 0.2),
+                micro_correction_chance=micro_corr_cfg.get("chance", 0.3),
+                micro_correction_magnitude=tuple(micro_corr_cfg.get("magnitude", [2.0, 8.0])),
+                # Speed variation settings
+                speed_variation_enabled=speed_var_cfg.get("enabled", True),
+                micro_pause_chance=micro_pause_cfg.get("chance", 0.25),
+                micro_pause_duration=tuple(micro_pause_cfg.get("duration", [0.03, 0.12])),
+                min_speed_factor=speed_var_cfg.get("min_speed_factor", 0.2),
+                max_speed_factor=speed_var_cfg.get("max_speed_factor", 1.5),
+                burst_chance=speed_var_cfg.get("burst_chance", 0.15),
+                burst_speed_multiplier=speed_var_cfg.get("burst_speed_multiplier", 1.8),
+                burst_duration_ratio=speed_var_cfg.get("burst_duration_ratio", 0.15),
             ),
             click_config=ClickConfig(
                 position_sigma_ratio=self.config.click.get("position_sigma_ratio", 6),

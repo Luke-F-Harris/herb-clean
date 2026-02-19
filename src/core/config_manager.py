@@ -11,6 +11,7 @@ class ConfigManager:
     """Load and validate bot configuration from YAML files."""
 
     DEFAULT_CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "default_config.yaml"
+    TUNING_CONFIG_PATH = Path(__file__).parent.parent.parent / "config" / "tuning.yaml"
 
     def __init__(self, config_path: str | Path | None = None):
         """Initialize config manager.
@@ -21,7 +22,26 @@ class ConfigManager:
         self.config_path = Path(config_path) if config_path else self.DEFAULT_CONFIG_PATH
         self._config: dict[str, Any] = {}
         self._load_config()
+        self._load_tuning()
         self._validate_config()
+
+    def _deep_merge(self, base: dict, override: dict) -> dict:
+        """Deep merge override dict into base dict.
+
+        Args:
+            base: Base dictionary
+            override: Dictionary with values to override
+
+        Returns:
+            Merged dictionary
+        """
+        result = base.copy()
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = self._deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
 
     def _load_config(self) -> None:
         """Load configuration from YAML file."""
@@ -30,6 +50,14 @@ class ConfigManager:
 
         with open(self.config_path, "r") as f:
             self._config = yaml.safe_load(f)
+
+    def _load_tuning(self) -> None:
+        """Load and merge tuning configuration if it exists."""
+        if self.TUNING_CONFIG_PATH.exists():
+            with open(self.TUNING_CONFIG_PATH, "r") as f:
+                tuning = yaml.safe_load(f)
+                if tuning:
+                    self._config = self._deep_merge(self._config, tuning)
 
     def _validate_config(self) -> None:
         """Validate required configuration sections exist."""
