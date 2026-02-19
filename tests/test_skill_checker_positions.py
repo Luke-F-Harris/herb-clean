@@ -147,15 +147,21 @@ def test_template_detection(screenshot_path, templates_to_test, matcher, output_
     cv2.putText(display_image, status_text, (10, 50),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
 
+    # Add instruction text
+    cv2.putText(display_image, "Press any key in this window to continue...", (10, h - 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
     # Save result
     output_path = output_dir / f"detection_{screenshot_path.name}"
     cv2.imwrite(str(output_path), display_image)
     print(f"  Output: {output_path}")
 
-    # Show image (non-blocking)
+    # Show image and wait for keypress
     try:
         cv2.imshow(f"Detection Test - {screenshot_path.name}", display_image)
-        cv2.waitKey(500)
+        print("\n  Press any key in the image window to continue...")
+        cv2.waitKey(0)  # Wait indefinitely for keypress
+        cv2.destroyWindow(f"Detection Test - {screenshot_path.name}")
     except Exception:
         pass  # Display may not be available
 
