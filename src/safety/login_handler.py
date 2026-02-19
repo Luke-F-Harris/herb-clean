@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
+from ..utils import create_rng
+
 if TYPE_CHECKING:
     from ..vision.screen_capture import ScreenCapture
     from ..vision.template_matcher import TemplateMatcher
@@ -68,7 +70,7 @@ class LoginHandler:
         self._template_matcher = template_matcher
         self._mouse = mouse
         self.config = config or LoginConfig()
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
 
         # Track login attempts
         self._login_attempts = 0

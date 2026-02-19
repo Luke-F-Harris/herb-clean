@@ -6,6 +6,8 @@ from typing import Optional
 
 import numpy as np
 
+from ..utils import create_rng, gamma_delay
+
 
 class ActionType(Enum):
     """Types of bot actions for timing purposes."""
@@ -51,7 +53,7 @@ class TimingRandomizer:
             config: Timing configuration
         """
         self.config = config or TimingConfig()
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
         self._fatigue_multiplier = 1.0
 
     def set_fatigue_multiplier(self, multiplier: float) -> None:
@@ -124,17 +126,7 @@ class TimingRandomizer:
         Returns:
             Delay in milliseconds
         """
-        # Calculate Gamma parameters from mean and std
-        # For Gamma: mean = k*theta, var = k*theta^2
-        # So: k = (mean/std)^2, theta = std^2/mean
-        variance = std * std
-        k = (mean * mean) / variance  # shape
-        theta = variance / mean  # scale
-
-        delay = self._rng.gamma(k, theta)
-
-        # Clamp to bounds
-        return max(min_val, min(max_val, delay))
+        return gamma_delay(self._rng, mean, std, min_val, max_val)
 
     def get_post_action_delay(self, action_type: ActionType) -> float:
         """Get delay after completing an action.

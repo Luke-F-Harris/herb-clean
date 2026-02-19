@@ -5,6 +5,8 @@ from typing import Optional
 
 import numpy as np
 
+from ..utils import create_rng, clamp
+
 
 @dataclass
 class ClickConfig:
@@ -45,7 +47,7 @@ class ClickHandler:
             config: Click configuration
         """
         self.config = config or ClickConfig()
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
 
     def calculate_click(self, target: ClickTarget) -> ClickResult:
         """Calculate randomized click position and duration.
@@ -84,8 +86,8 @@ class ClickHandler:
         half_width = target.width / 2
         half_height = target.height / 2
 
-        x = max(target.center_x - half_width, min(target.center_x + half_width, x))
-        y = max(target.center_y - half_height, min(target.center_y + half_height, y))
+        x = clamp(x, target.center_x - half_width, target.center_x + half_width)
+        y = clamp(y, target.center_y - half_height, target.center_y + half_height)
 
         return int(round(x)), int(round(y))
 

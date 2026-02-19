@@ -7,6 +7,8 @@ from pynput.keyboard import Key, Controller as KeyboardDriver
 
 import numpy as np
 
+from ..utils import create_rng
+
 
 class KeyboardController:
     """Handle keyboard input with human-like timing."""
@@ -14,7 +16,7 @@ class KeyboardController:
     def __init__(self):
         """Initialize keyboard controller."""
         self._keyboard = KeyboardDriver()
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
         self._stop_flag = False
         self._last_key_time = 0.0
 
@@ -245,7 +247,7 @@ class ShiftClickContext:
 
     def __init__(self, keyboard: KeyboardController):
         self._keyboard = keyboard
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
 
     def __enter__(self):
         self._keyboard.hold_shift()

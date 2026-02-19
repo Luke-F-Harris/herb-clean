@@ -7,6 +7,8 @@ from typing import Optional, Callable
 
 import numpy as np
 
+from ..utils import create_rng
+
 
 class BreakType(Enum):
     """Types of breaks."""
@@ -49,7 +51,7 @@ class BreakScheduler:
             config: Break configuration
         """
         self.config = config or BreakConfig()
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
         self._session_start: Optional[float] = None
         self._next_micro_break: Optional[ScheduledBreak] = None
         self._next_long_break: Optional[ScheduledBreak] = None

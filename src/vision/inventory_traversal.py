@@ -6,6 +6,8 @@ from typing import Optional
 
 import numpy as np
 
+from ..utils import create_rng
+
 
 class TraversalPattern(Enum):
     """Available inventory traversal patterns."""
@@ -42,7 +44,7 @@ class InventoryTraversal:
             enabled_patterns: List of pattern names to enable (all if None)
             pattern_weights: Optional weights for pattern selection
         """
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
 
         # Default to all patterns
         all_patterns = [p.value for p in TraversalPattern]

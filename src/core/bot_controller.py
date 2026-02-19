@@ -5,6 +5,8 @@ import time
 from typing import Optional
 
 import numpy as np
+
+from ..utils import create_rng
 from pynput.mouse import Button
 
 from .config_manager import ConfigManager
@@ -232,7 +234,7 @@ class BotController:
         )
 
         self._is_running = False
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
 
         # Initialize event emitter and status aggregator
         self.events = EventEmitter()

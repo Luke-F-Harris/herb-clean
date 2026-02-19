@@ -7,6 +7,7 @@ from typing import Optional
 
 import numpy as np
 
+from ..utils import create_rng
 from .organic_easing import OrganicEasing, OrganicEasingConfig
 
 
@@ -71,7 +72,7 @@ class BezierMovement:
             config: Movement configuration
         """
         self.config = config or MovementConfig()
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
         self._organic_easing = OrganicEasing(self._rng, self.config.organic_easing_config)
 
     def generate_path(

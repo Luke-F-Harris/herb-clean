@@ -6,6 +6,8 @@ from typing import Optional
 
 import numpy as np
 
+from ..utils import create_rng
+
 
 @dataclass
 class FatigueConfig:
@@ -27,7 +29,7 @@ class FatigueSimulator:
             config: Fatigue configuration
         """
         self.config = config or FatigueConfig()
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
         self._session_start: Optional[float] = None
         self._last_break_time: Optional[float] = None
 

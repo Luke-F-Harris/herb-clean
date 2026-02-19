@@ -6,6 +6,7 @@ from typing import Optional, Callable
 import numpy as np
 from pynput.mouse import Button, Controller as MouseDriver
 
+from ..utils import create_rng
 from .bezier_movement import BezierMovement, MovementConfig
 from .click_handler import ClickHandler, ClickConfig, ClickTarget
 
@@ -41,7 +42,7 @@ class MouseController:
         self.click_handler = ClickHandler(click_config)
         self._stop_flag = False
         self._on_move_callback: Optional[Callable[[int, int], None]] = None
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
 
         # Hesitation config
         self._hesitation_chance = hesitation_chance

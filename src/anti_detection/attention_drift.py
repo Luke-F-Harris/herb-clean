@@ -6,6 +6,8 @@ from typing import Optional
 
 import numpy as np
 
+from ..utils import create_rng, clamp
+
 
 class DriftTarget(Enum):
     """Targets for attention drift."""
@@ -68,7 +70,7 @@ class AttentionDrift:
             window_height: Game window height
         """
         self.config = config or DriftConfig()
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
         self._window_width = window_width
         self._window_height = window_height
         self._regions = self.DEFAULT_REGIONS.copy()
@@ -167,8 +169,8 @@ class AttentionDrift:
         y = self._rng.normal(center_y, sigma_y)
 
         # Clamp to region
-        x = max(region.x, min(region.x + region.width, x))
-        y = max(region.y, min(region.y + region.height, y))
+        x = clamp(x, region.x, region.x + region.width)
+        y = clamp(y, region.y, region.y + region.height)
 
         return (int(x), int(y))
 

@@ -2,11 +2,13 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 from PIL import Image
+
+from ..utils import BANK_BG_COLOR_BGR
 
 
 @dataclass
@@ -27,8 +29,8 @@ class MatchResult:
 class TemplateMatcher:
     """Multi-scale template matching using OpenCV."""
 
-    # OSRS bank background color (BGR) - tan/brown color
-    BANK_BG_COLOR = (73, 97, 117)  # Approximate bank slot background
+    # Use shared constant for bank background color
+    BANK_BG_COLOR = BANK_BG_COLOR_BGR
 
     def __init__(
         self,
@@ -212,6 +214,44 @@ class TemplateMatcher:
             center_y=loc[1] + h // 2,
         )
 
+    def _run_match_template(
+        self,
+        image: np.ndarray,
+        scaled_template: np.ndarray,
+        method: int,
+        scaled_mask: Optional[np.ndarray] = None,
+    ) -> Tuple[float, Tuple[int, int]]:
+        """Run template matching and extract confidence and location.
+
+        Common helper for multi-scale matching methods.
+
+        Args:
+            image: BGR image to search in
+            scaled_template: Pre-scaled template
+            method: OpenCV template matching method
+            scaled_mask: Pre-scaled mask (optional)
+
+        Returns:
+            (confidence, (x, y)) tuple with match confidence and location
+        """
+        # Use mask-based matching if available and method supports it
+        if scaled_mask is not None and method in [cv2.TM_SQDIFF, cv2.TM_CCORR_NORMED]:
+            result = cv2.matchTemplate(image, scaled_template, method, mask=scaled_mask)
+        else:
+            result = cv2.matchTemplate(image, scaled_template, method)
+
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+        # For TM_SQDIFF methods, minimum is best match
+        if method in [cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED]:
+            confidence = 1.0 - min_val
+            loc = min_loc
+        else:
+            confidence = max_val
+            loc = max_loc
+
+        return confidence, loc
+
     def _match_multi_scale(
         self,
         image: np.ndarray,
@@ -253,20 +293,10 @@ class TemplateMatcher:
             if mask is not None:
                 scaled_mask = cv2.resize(mask, (new_w, new_h))
 
-            # Use mask-based matching if available
-            if scaled_mask is not None and method in [cv2.TM_SQDIFF, cv2.TM_CCORR_NORMED]:
-                result = cv2.matchTemplate(image, scaled_template, method, mask=scaled_mask)
-            else:
-                result = cv2.matchTemplate(image, scaled_template, method)
-
-            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-
-            if method in [cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED]:
-                confidence = 1.0 - min_val
-                loc = min_loc
-            else:
-                confidence = max_val
-                loc = max_loc
+            # Run template matching
+            confidence, loc = self._run_match_template(
+                image, scaled_template, method, scaled_mask
+            )
 
             if confidence > best_result.confidence:
                 best_result = MatchResult(
@@ -468,20 +498,10 @@ class TemplateMatcher:
             if mask is not None:
                 scaled_mask = cv2.resize(mask, (new_w, new_h))
 
-            # Use mask-based matching if available
-            if scaled_mask is not None and method in [cv2.TM_SQDIFF, cv2.TM_CCORR_NORMED]:
-                result = cv2.matchTemplate(image, scaled_template, method, mask=scaled_mask)
-            else:
-                result = cv2.matchTemplate(image, scaled_template, method)
-
-            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-
-            if method in [cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED]:
-                confidence = 1.0 - min_val
-                loc = min_loc
-            else:
-                confidence = max_val
-                loc = max_loc
+            # Run template matching
+            confidence, loc = self._run_match_template(
+                image, scaled_template, method, scaled_mask
+            )
 
             if confidence > best_result.confidence:
                 # Scale original dimensions

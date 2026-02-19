@@ -8,6 +8,8 @@ from typing import Optional, TYPE_CHECKING
 import cv2
 import numpy as np
 
+from ..utils import create_rng
+
 if TYPE_CHECKING:
     from ..input.keyboard_controller import KeyboardController
     from ..input.mouse_controller import MouseController
@@ -50,7 +52,7 @@ class SkillChecker:
         self._mouse = mouse
         self._screen = screen
         self._template_matcher = template_matcher
-        self._rng = np.random.default_rng()
+        self._rng = create_rng()
 
         # Track when next check should occur
         self._next_check_time = self._schedule_next_check()
