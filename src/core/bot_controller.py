@@ -85,6 +85,9 @@ class BotController:
         micro_corr_cfg = imperfection_cfg.get("micro_correction", {})
         micro_pause_cfg = speed_var_cfg.get("micro_pause", {})
 
+        # Post-click drift config
+        post_click_drift_cfg = cleaning_cfg.get("post_click_drift", {})
+
         self.mouse = MouseController(
             movement_config=MovementConfig(
                 speed_range=tuple(mouse_cfg.get("speed_range", [800, 1400])),
@@ -120,6 +123,9 @@ class BotController:
             hesitation_chance=hesitation_cfg.get("chance", 0.15) if hesitation_cfg.get("enabled", True) else 0.0,
             hesitation_movements=tuple(hesitation_cfg.get("movements", [1, 3])),
             correction_delay=tuple(missed_click_cfg.get("correction_delay", [0.15, 0.35])),
+            post_click_drift_enabled=post_click_drift_cfg.get("enabled", True),
+            post_click_drift_chance=post_click_drift_cfg.get("chance", 0.6),
+            post_click_drift_distance=tuple(post_click_drift_cfg.get("distance", [1, 4])),
         )
         self.keyboard = KeyboardController()
 
@@ -466,6 +472,16 @@ class BotController:
         if not slot:
             self.state_machine.start_banking()
             return
+
+        # Occasionally skip this herb and get the next one (5% chance)
+        skip_chance = self.config.get("cleaning.skip_herb_chance", 0.05)
+        if self._rng.random() < skip_chance:
+            skipped_slot = slot
+            slot = self.inventory.get_next_grimy_slot(mouse_pos=mouse_pos)
+            if slot:
+                self._logger.debug(f"Skipped slot {skipped_slot.index}, now cleaning slot {slot.index}")
+            else:
+                slot = skipped_slot  # No more slots, use the one we were going to skip
 
         # Get screen coordinates
         screen_x, screen_y = self.inventory.get_slot_screen_coords(slot.index)

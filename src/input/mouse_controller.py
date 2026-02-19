@@ -20,6 +20,9 @@ class MouseController:
         hesitation_chance: float = 0.15,
         hesitation_movements: tuple[int, int] = (1, 3),
         correction_delay: tuple[float, float] = (0.15, 0.35),
+        post_click_drift_enabled: bool = True,
+        post_click_drift_chance: float = 0.6,
+        post_click_drift_distance: tuple[int, int] = (1, 4),
     ):
         """Initialize mouse controller.
 
@@ -29,6 +32,9 @@ class MouseController:
             hesitation_chance: Probability of hesitation movements before clicking
             hesitation_movements: Range of extra movements during hesitation
             correction_delay: Range of delay before correcting a missed click
+            post_click_drift_enabled: Whether to enable post-click micro-drift
+            post_click_drift_chance: Probability of drift after clicking
+            post_click_drift_distance: Range of drift distance in pixels
         """
         self._mouse = MouseDriver()
         self.bezier = BezierMovement(movement_config)
@@ -41,6 +47,11 @@ class MouseController:
         self._hesitation_chance = hesitation_chance
         self._hesitation_movements = hesitation_movements
         self._correction_delay = correction_delay
+
+        # Post-click drift config
+        self._post_click_drift_enabled = post_click_drift_enabled
+        self._post_click_drift_chance = post_click_drift_chance
+        self._post_click_drift_distance = post_click_drift_distance
 
     @property
     def position(self) -> tuple[int, int]:
@@ -192,6 +203,36 @@ class MouseController:
 
         return True
 
+    def _post_click_drift(self) -> bool:
+        """Perform small mouse drift after clicking (natural hand movement).
+
+        Simulates the subtle hand tremor/movement that occurs after clicking,
+        making behavior more human-like.
+
+        Returns:
+            True if completed, False if stopped
+        """
+        if not self._post_click_drift_enabled:
+            return True
+
+        if self._rng.random() > self._post_click_drift_chance:
+            return True
+
+        # Small drift: configurable pixels in random direction
+        min_dist, max_dist = self._post_click_drift_distance
+        drift_x = self._rng.integers(-max_dist, max_dist + 1)
+        drift_y = self._rng.integers(-max_dist, max_dist + 1)
+
+        # Ensure minimum drift distance
+        if abs(drift_x) < min_dist and abs(drift_y) < min_dist:
+            drift_x = min_dist if drift_x >= 0 else -min_dist
+
+        current = self.position
+        target = (current[0] + drift_x, current[1] + drift_y)
+
+        # Very short, slow movement (fewer points = faster)
+        return self.move_to(target[0], target[1], num_points=10)
+
     def click_at_target(
         self,
         target: ClickTarget,
@@ -256,6 +297,9 @@ class MouseController:
             time.sleep(corrected.duration)
             self._mouse.release(button)
 
+            # Post-click drift (subtle hand movement)
+            self._post_click_drift()
+
             return True, was_misclick
 
         # Normal click (no misclick or not allowed on this row)
@@ -266,6 +310,9 @@ class MouseController:
         self._mouse.press(button)
         time.sleep(click_result.duration)
         self._mouse.release(button)
+
+        # Post-click drift (subtle hand movement)
+        self._post_click_drift()
 
         return True, was_misclick
 

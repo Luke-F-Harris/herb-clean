@@ -470,10 +470,21 @@ class BotMovementVisualizer:
         color: tuple[int, int, int],
         start_time: float,
         label: str = "",
+        slot_row: Optional[int] = None,
+        misclick_rate: float = 0.03,
     ) -> tuple[tuple[int, int], float]:
         """Simulate mouse movement to target using bot logic.
 
         This replicates MouseController.click_at_target() behavior.
+
+        Args:
+            start: Starting position
+            target: Click target area
+            color: Path color
+            start_time: Start time in simulation
+            label: Action label
+            slot_row: Inventory row (0-6) for row-aware misclick
+            misclick_rate: Probability of misclick
 
         Returns:
             (final_position, end_time)
@@ -482,7 +493,100 @@ class BotMovementVisualizer:
         if self.debug_mode:
             self.debug_targets.append((target, label, color))
 
-        # Calculate randomized click position (same as click_handler.calculate_click)
+        # Check for misclick (only on middle rows, same as real bot)
+        allow_miss = slot_row is not None and 0 < slot_row < 6
+        is_misclick = allow_miss and self._rng.random() < misclick_rate
+
+        if is_misclick:
+            # Generate miss position (20-50 pixels away in random direction)
+            miss_offset = self._rng.integers(20, 50)
+            miss_angle = self._rng.uniform(0, 2 * np.pi)
+            miss_x = target.center_x + int(miss_offset * np.cos(miss_angle))
+            miss_y = target.center_y + int(miss_offset * np.sin(miss_angle))
+
+            # First movement: to wrong position
+            miss_path = self.bezier.generate_path(start, (miss_x, miss_y), num_points=60)
+            miss_time = self.bezier.calculate_movement_time(start, (miss_x, miss_y))
+            miss_delays = self.bezier.get_point_delays(miss_path, miss_time)
+
+            miss_segment = PathSegment(
+                points=miss_path,
+                delays=miss_delays,
+                total_time=miss_time,
+                color=(255, 100, 100),  # Red for misclick
+                is_overshoot=False,
+                label=f"{label} (MISS)",
+            )
+            self.path_segments.append(miss_segment)
+
+            self.actions.append(SimulatedAction(
+                action_type="move",
+                start_time=start_time,
+                end_time=start_time + miss_time,
+                data={"segment": miss_segment},
+            ))
+
+            # Misclick event
+            miss_click_time = start_time + miss_time
+            miss_click_result = self.click_handler.calculate_click(target)
+            self.click_events.append(ClickEvent(
+                x=miss_x, y=miss_y,
+                timestamp=miss_click_time,
+                duration=miss_click_result.duration,
+            ))
+            self.actions.append(SimulatedAction(
+                action_type="click",
+                start_time=miss_click_time,
+                end_time=miss_click_time + miss_click_result.duration,
+                data={"x": miss_x, "y": miss_y},
+            ))
+
+            # Correction delay (human reaction time: 150-350ms)
+            correction_delay = self._rng.uniform(0.15, 0.35)
+            current_time = miss_click_time + miss_click_result.duration + correction_delay
+
+            # Second movement: correct to actual target
+            click_result = self.click_handler.calculate_click(target)
+            end = (click_result.x, click_result.y)
+
+            correction_path = self.bezier.generate_path((miss_x, miss_y), end, num_points=60)
+            correction_time = self.bezier.calculate_movement_time((miss_x, miss_y), end)
+            correction_delays = self.bezier.get_point_delays(correction_path, correction_time)
+
+            correction_segment = PathSegment(
+                points=correction_path,
+                delays=correction_delays,
+                total_time=correction_time,
+                color=self.COLOR_OVERSHOOT,  # Magenta for correction
+                is_overshoot=False,
+                label=f"{label} (CORRECT)",
+            )
+            self.path_segments.append(correction_segment)
+
+            self.actions.append(SimulatedAction(
+                action_type="move",
+                start_time=current_time,
+                end_time=current_time + correction_time,
+                data={"segment": correction_segment},
+            ))
+
+            # Correct click
+            correct_click_time = current_time + correction_time
+            self.click_events.append(ClickEvent(
+                x=end[0], y=end[1],
+                timestamp=correct_click_time,
+                duration=click_result.duration,
+            ))
+            self.actions.append(SimulatedAction(
+                action_type="click",
+                start_time=correct_click_time,
+                end_time=correct_click_time + click_result.duration,
+                data={"x": end[0], "y": end[1]},
+            ))
+
+            return end, correct_click_time + click_result.duration
+
+        # Normal click (no misclick)
         click_result = self.click_handler.calculate_click(target)
         end = (click_result.x, click_result.y)
 
@@ -727,12 +831,26 @@ class BotMovementVisualizer:
         grimy_indices = set(range(herbs_to_clean))
         traversal_order = [i for i in traversal_order if i in grimy_indices]
 
+        # Skip herb simulation (5% chance, same as real bot)
+        skip_chance = self.config.get("cleaning.skip_herb_chance", 0.05)
+        slots_to_skip = set()
+        for slot_idx in traversal_order:
+            if self._rng.random() < skip_chance and len(slots_to_skip) < 2:
+                slots_to_skip.add(slot_idx)
+                print(f"  Skipping slot {slot_idx}")
+
+        # Filter out skipped slots
+        traversal_order = [i for i in traversal_order if i not in slots_to_skip]
+
         print(f"  Using traversal pattern: {pattern.value}")
         print(f"  First 8 slots in order: {traversal_order[:8]}")
+        if slots_to_skip:
+            print(f"  Skipped slots: {sorted(slots_to_skip)}")
 
         inv_cfg = self.config.window.get("inventory", {})
         for count, slot_idx in enumerate(traversal_order):
             slot_pos = inventory_slots[slot_idx]
+            slot_row = slot_idx // 4  # Calculate row (0-6) from slot index
 
             slot_target = ClickTarget(
                 center_x=slot_pos[0],
@@ -742,7 +860,9 @@ class BotMovementVisualizer:
             )
             current_pos, current_time = self._simulate_move_to_target(
                 current_pos, slot_target, self.COLOR_INVENTORY, current_time,
-                label=f"Clean herb {count+1} (slot {slot_idx})"
+                label=f"Clean herb {count+1} (slot {slot_idx})",
+                slot_row=slot_row,
+                misclick_rate=0.03,  # 3% misclick rate
             )
 
             # Delay between herb clicks (timing.get_delay(ActionType.CLICK_HERB))

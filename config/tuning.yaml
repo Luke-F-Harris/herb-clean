@@ -75,6 +75,13 @@ cleaning:
   missed_click:
     correction_delay: [0.15, 0.35]  # Reaction time before correction (seconds)
 
+  # Post-click micro-drift (subtle mouse movement after clicking)
+  # Simulates natural hand tremor/movement that occurs after clicking
+  post_click_drift:
+    enabled: true
+    chance: 0.6                 # 60% of clicks have drift
+    distance: [1, 4]            # Pixels to drift
+
 # =============================================================================
 # MOUSE PATH CHARACTERISTICS
 # =============================================================================
