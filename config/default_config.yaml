@@ -3,9 +3,9 @@ window:
   auto_detect_inventory: true
   inventory_template: inventory_template.png
   inventory:
-    x: 3482
-    y: 1649
-    slot_width: 67
+    x: 840
+    y: 356
+    slot_width: 64
     slot_height: 54
     cols: 4
     rows: 7
