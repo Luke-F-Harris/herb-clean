@@ -26,11 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from core.config_manager import ConfigManager
 from input.bezier_movement import BezierMovement, MovementConfig
 from input.click_handler import ClickHandler, ClickConfig, ClickTarget
-from input.keyboard_controller import KeyboardController
 from vision.screen_capture import ScreenCapture
-from vision.template_matcher import TemplateMatcher
-from vision.inventory_detector import InventoryDetector
-from vision.bank_detector import BankDetector
 from anti_detection.timing_randomizer import TimingRandomizer, ActionType, TimingConfig
 
 
