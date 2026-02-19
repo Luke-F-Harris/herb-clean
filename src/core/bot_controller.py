@@ -80,10 +80,11 @@ class BotController:
         missed_click_cfg = cleaning_cfg.get("missed_click", {})
         path_cfg = self.config.get_section("path")
         speed_var_cfg = mouse_cfg.get("speed_variation", {})
-        jitter_cfg = mouse_cfg.get("jitter", {})
-        imperfection_cfg = mouse_cfg.get("imperfection", {})
+        jitter_cfg = path_cfg.get("jitter", mouse_cfg.get("jitter", {}))
+        imperfection_cfg = path_cfg.get("imperfection", mouse_cfg.get("imperfection", {}))
         micro_corr_cfg = imperfection_cfg.get("micro_correction", {})
         micro_pause_cfg = speed_var_cfg.get("micro_pause", {})
+        multi_segment_cfg = path_cfg.get("multi_segment", {})
 
         # Post-click drift config
         post_click_drift_cfg = cleaning_cfg.get("post_click_drift", {})
@@ -104,6 +105,9 @@ class BotController:
                 control_point_variance=imperfection_cfg.get("control_point_variance", 0.2),
                 micro_correction_chance=micro_corr_cfg.get("chance", 0.3),
                 micro_correction_magnitude=tuple(micro_corr_cfg.get("magnitude", [2.0, 8.0])),
+                # Multi-segment curves (3-4 control points)
+                multi_segment_chance=multi_segment_cfg.get("chance", 0.25),
+                max_control_points=multi_segment_cfg.get("max_control_points", 4),
                 # Speed variation settings
                 speed_variation_enabled=speed_var_cfg.get("enabled", True),
                 micro_pause_chance=micro_pause_cfg.get("chance", 0.25),

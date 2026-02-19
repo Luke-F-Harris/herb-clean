@@ -104,11 +104,17 @@ path:
   # Path imperfections
   imperfection:
     enabled: true
-    simple_curve_chance: 0.15   # Chance of simpler curve
+    simple_curve_chance: 0.15   # Chance of simpler quadratic curve (1 control point)
     control_point_variance: 0.2
     micro_correction:
       chance: 0.3
       magnitude: [2.0, 8.0]     # Pixels of deviation
+
+  # Multi-segment curves (more organic, complex paths)
+  # Uses 3-4 control points instead of 2 for more natural variation
+  multi_segment:
+    chance: 0.25                # 25% chance for longer movements
+    max_control_points: 4       # Maximum control points (2-4)
 
 # =============================================================================
 # INVENTORY TRAVERSAL PATTERNS
