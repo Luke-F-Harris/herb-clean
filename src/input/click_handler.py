@@ -5,7 +5,7 @@ from typing import Optional
 
 import numpy as np
 
-from src.utils import create_rng, clamp
+from utils import create_rng, clamp
 
 
 @dataclass

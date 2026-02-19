@@ -7,7 +7,7 @@ from typing import Optional
 
 import numpy as np
 
-from src.utils import create_rng
+from utils import create_rng
 from .organic_easing import OrganicEasing, OrganicEasingConfig
 
 

@@ -8,7 +8,7 @@ from typing import Optional, TYPE_CHECKING
 import cv2
 import numpy as np
 
-from src.utils import create_rng
+from utils import create_rng
 
 if TYPE_CHECKING:
     from ..input.keyboard_controller import KeyboardController

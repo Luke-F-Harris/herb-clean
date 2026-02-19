@@ -6,7 +6,7 @@ from typing import Optional, Callable
 import numpy as np
 from pynput.mouse import Button, Controller as MouseDriver
 
-from src.utils import create_rng
+from utils import create_rng
 from .bezier_movement import BezierMovement, MovementConfig
 from .click_handler import ClickHandler, ClickConfig, ClickTarget
 

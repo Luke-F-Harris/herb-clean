@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from src.utils import create_rng
+from utils import create_rng
 
 if TYPE_CHECKING:
     from ..vision.screen_capture import ScreenCapture

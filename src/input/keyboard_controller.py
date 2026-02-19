@@ -7,7 +7,7 @@ from pynput.keyboard import Key, Controller as KeyboardDriver
 
 import numpy as np
 
-from src.utils import create_rng
+from utils import create_rng
 
 
 class KeyboardController:
