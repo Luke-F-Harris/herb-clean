@@ -68,6 +68,21 @@ mouse:
       duration:
       - 0.02
       - 0.08
+  # Organic easing (replaces mathematical easing with procedural curves)
+  # When enabled, generates unique, non-repeatable easing for each movement
+  # This prevents detection of mathematical constants like t^2 or sin(t*pi)
+  organic_easing:
+    enabled: true
+    # Base shape variation
+    inflection_range: [0.35, 0.65]     # Where speed peaks (0.5 = symmetric)
+    power_range: [1.5, 2.5]            # Curve steepness (2.0 = quadratic)
+    amplitude_range: [0.85, 1.0]       # Overall strength variation
+    # Perturbation noise (adds organic wobble)
+    perturbation_strength: [0.03, 0.08]
+    noise_octaves: 3                   # Layers of variation
+    # Drift (simulates hand fatigue/recovery)
+    drift_rate_range: [-0.05, 0.05]
+    drift_curve_range: [0.5, 2.0]
 click:
   position_sigma_ratio: 6
   duration_mean: 100

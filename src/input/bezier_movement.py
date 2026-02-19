@@ -2,10 +2,12 @@
 
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
+
+from .organic_easing import OrganicEasing, OrganicEasingConfig
 
 
 @dataclass
@@ -47,6 +49,9 @@ class MovementConfig:
     burst_speed_multiplier: float = 1.8
     burst_duration_ratio: float = 0.15
 
+    # Organic easing (replaces mathematical easing functions)
+    organic_easing_config: OrganicEasingConfig = field(default_factory=OrganicEasingConfig)
+
 
 @dataclass
 class Point:
@@ -67,6 +72,7 @@ class BezierMovement:
         """
         self.config = config or MovementConfig()
         self._rng = np.random.default_rng()
+        self._organic_easing = OrganicEasing(self._rng, self.config.organic_easing_config)
 
     def generate_path(
         self,
@@ -377,7 +383,11 @@ class BezierMovement:
         """
         points = []
         if easing_func is None:
-            easing_func = self._get_random_easing_function()
+            # Calculate distance for organic easing
+            dx = p3.x - p0.x
+            dy = p3.y - p0.y
+            distance = math.sqrt(dx * dx + dy * dy)
+            easing_func = self._get_random_easing_function(distance)
 
         for i in range(num_points):
             # Variable t for speed variation using selected easing
@@ -416,7 +426,11 @@ class BezierMovement:
         """
         points = []
         if easing_func is None:
-            easing_func = self._get_random_easing_function()
+            # Calculate distance for organic easing (p2 is the end point)
+            dx = p2.x - p0.x
+            dy = p2.y - p0.y
+            distance = math.sqrt(dx * dx + dy * dy)
+            easing_func = self._get_random_easing_function(distance)
 
         for i in range(num_points):
             linear_t = i / (num_points - 1) if num_points > 1 else 1
@@ -454,7 +468,11 @@ class BezierMovement:
             List of points forming the path
         """
         if easing_func is None:
-            easing_func = self._get_random_easing_function()
+            # Calculate distance for organic easing
+            dx = end.x - start.x
+            dy = end.y - start.y
+            distance = math.sqrt(dx * dx + dy * dy)
+            easing_func = self._get_random_easing_function(distance)
 
         if len(controls) < 2:
             # Fall back to standard cubic
@@ -549,8 +567,24 @@ class BezierMovement:
             return (2 * t) ** 2 * ((c2 + 1) * 2 * t - c2) / 2
         return ((2 * t - 2) ** 2 * ((c2 + 1) * (t * 2 - 2) + c2) + 2) / 2
 
-    def _get_random_easing_function(self) -> callable:
-        """Randomly select an easing function based on configured weights."""
+    def _get_random_easing_function(self, distance: float = 100) -> callable:
+        """Get a unique organic easing function for this movement.
+
+        Each call returns a completely unique easing function with different
+        characteristics. No mathematical constants are used - the curve is
+        procedurally generated to be undetectable.
+
+        Args:
+            distance: Movement distance in pixels (affects curve characteristics)
+
+        Returns:
+            A unique easing function for this movement
+        """
+        if self.config.organic_easing_config.enabled:
+            # Generate completely unique easing for each movement
+            return self._organic_easing.generate_easing_function(distance)
+
+        # Fallback to legacy mathematical easing if organic is disabled
         if not self.config.speed_variation_enabled:
             return self._ease_in_out
 
@@ -773,7 +807,7 @@ class BezierMovement:
 
         return delays
 
-    def _generate_speed_profile(self, num_segments: int) -> list[float]:
+    def _generate_speed_profile(self, num_segments: int, movement_distance: float = 100) -> list[float]:
         """Generate a continuous speed profile with gradual variations.
 
         Creates organic speed changes that:
@@ -781,34 +815,51 @@ class BezierMovement:
         - Have continuous medium-frequency oscillations
         - Include gradual drift in overall speed tendency
         - Never maintain constant speed for more than 2-3 points
+        - Use procedurally generated curves (no mathematical constants)
 
         Args:
             num_segments: Number of path segments
+            movement_distance: Distance in pixels (affects organic curve)
 
         Returns:
             List of speed factors (higher = faster movement)
         """
-        if not self.config.speed_variation_enabled:
-            # Even without variation, use basic ease-in-out
-            return [
-                self.config.min_speed_factor +
-                (self.config.max_speed_factor - self.config.min_speed_factor) *
-                math.sin(i / num_segments * math.pi)
-                for i in range(num_segments)
-            ]
-
         min_factor = self.config.min_speed_factor
         max_factor = self.config.max_speed_factor
         factor_range = max_factor - min_factor
 
-        # Random parameters for this movement's speed profile
-        # Each movement gets a unique "personality"
+        # Use organic easing for base curve if enabled
+        use_organic = self.config.organic_easing_config.enabled
 
-        # Primary wave: slow-fast-slow with random asymmetry
-        # Asymmetry shifts the peak speed earlier or later in the movement
-        asymmetry = self._rng.uniform(-0.15, 0.15)  # Peak shift
+        if not self.config.speed_variation_enabled:
+            if use_organic:
+                # Use organic base even without variation
+                organic_profile = self._organic_easing.generate_base_profile(
+                    num_segments, movement_distance
+                )
+                return [
+                    min_factor + factor_range * base
+                    for base in organic_profile
+                ]
+            else:
+                # Legacy: basic ease-in-out with sin()
+                return [
+                    min_factor + factor_range * math.sin(i / num_segments * math.pi)
+                    for i in range(num_segments)
+                ]
+
+        # Generate organic parameters for this movement's speed profile
+        if use_organic:
+            profile_params = self._organic_easing.generate_easing_params_for_speed_profile(
+                movement_distance
+            )
+            asymmetry = profile_params['asymmetry']
+        else:
+            # Legacy: fixed asymmetry range
+            asymmetry = self._rng.uniform(-0.15, 0.15)
 
         # Secondary waves: medium frequency oscillations (2-4 cycles)
+        # These add variation on top of the base curve
         num_waves = self._rng.integers(2, 5)
         wave_amplitudes = [self._rng.uniform(0.08, 0.20) for _ in range(num_waves)]
         wave_phases = [self._rng.uniform(0, 2 * math.pi) for _ in range(num_waves)]
@@ -826,11 +877,15 @@ class BezierMovement:
         for i in range(num_segments):
             progress = i / num_segments
 
-            # 1. Base curve: asymmetric slow-fast-slow
-            # Uses a modified sine that can peak earlier or later
-            adjusted_progress = progress + asymmetry * math.sin(progress * math.pi)
-            adjusted_progress = max(0, min(1, adjusted_progress))
-            base = math.sin(adjusted_progress * math.pi)
+            # 1. Base curve: organic or legacy
+            if use_organic:
+                # Use organic base (no mathematical constants)
+                base = self._organic_easing.apply_organic_base(progress, profile_params)
+            else:
+                # Legacy: asymmetric slow-fast-slow using sin()
+                adjusted_progress = progress + asymmetry * math.sin(progress * math.pi)
+                adjusted_progress = max(0, min(1, adjusted_progress))
+                base = math.sin(adjusted_progress * math.pi)
 
             # 2. Secondary waves: medium frequency oscillations
             wave_sum = 0

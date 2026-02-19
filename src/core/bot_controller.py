@@ -15,6 +15,7 @@ from ..vision.inventory_detector import InventoryDetector
 from ..vision.bank_detector import BankDetector
 from ..input.mouse_controller import MouseController
 from ..input.bezier_movement import MovementConfig
+from ..input.organic_easing import OrganicEasingConfig
 from ..input.click_handler import ClickConfig, ClickTarget
 from ..input.keyboard_controller import KeyboardController
 from ..anti_detection.timing_randomizer import TimingRandomizer, ActionType, TimingConfig
@@ -86,6 +87,7 @@ class BotController:
         micro_corr_cfg = imperfection_cfg.get("micro_correction", {})
         micro_pause_cfg = speed_var_cfg.get("micro_pause", {})
         multi_segment_cfg = path_cfg.get("multi_segment", {})
+        organic_easing_cfg = mouse_cfg.get("organic_easing", {})
 
         # Post-click drift config
         post_click_drift_cfg = cleaning_cfg.get("post_click_drift", {})
@@ -118,6 +120,17 @@ class BotController:
                 burst_chance=speed_var_cfg.get("burst_chance", 0.15),
                 burst_speed_multiplier=speed_var_cfg.get("burst_speed_multiplier", 1.8),
                 burst_duration_ratio=speed_var_cfg.get("burst_duration_ratio", 0.15),
+                # Organic easing (procedural curves replacing mathematical functions)
+                organic_easing_config=OrganicEasingConfig(
+                    enabled=organic_easing_cfg.get("enabled", True),
+                    inflection_range=tuple(organic_easing_cfg.get("inflection_range", [0.35, 0.65])),
+                    power_range=tuple(organic_easing_cfg.get("power_range", [1.5, 2.5])),
+                    amplitude_range=tuple(organic_easing_cfg.get("amplitude_range", [0.85, 1.0])),
+                    perturbation_strength_range=tuple(organic_easing_cfg.get("perturbation_strength", [0.03, 0.08])),
+                    noise_octaves=organic_easing_cfg.get("noise_octaves", 3),
+                    drift_rate_range=tuple(organic_easing_cfg.get("drift_rate_range", [-0.05, 0.05])),
+                    drift_curve_range=tuple(organic_easing_cfg.get("drift_curve_range", [0.5, 2.0])),
+                ),
             ),
             click_config=ClickConfig(
                 position_sigma_ratio=self.config.click.get("position_sigma_ratio", 6),
