@@ -65,8 +65,8 @@ click:
 # HERB CLEANING BEHAVIOR
 # =============================================================================
 cleaning:
-  skip_herb_chance: 0.05        # Chance to skip to next herb
-  accidental_drag_chance: 0.05  # Chance to accidentally drag herb (middle rows only)
+  skip_herb_chance: 0.025        # Chance to skip to next herb
+  accidental_drag_chance: 0.015  # Chance to accidentally drag herb (middle rows only)
   overshoot_undershoot_rate: 0.05  # Chance to overshoot/undershoot when clicking
 
   hesitation:
