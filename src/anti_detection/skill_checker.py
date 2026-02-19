@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING
 
+import cv2
 import numpy as np
 
 if TYPE_CHECKING:
@@ -153,11 +154,55 @@ class SkillChecker:
 
         return True
 
+    def _detect_ui_element(
+        self,
+        template_name: str,
+        fallback_x_ratio: float,
+        fallback_y_ratio: float,
+    ) -> Optional[tuple[int, int]]:
+        """Detect a UI element using template matching with fallback.
+
+        Args:
+            template_name: Template image filename (e.g., "skills_tab.png")
+            fallback_x_ratio: X position as ratio of window width (0.0-1.0)
+            fallback_y_ratio: Y position as ratio of window height (0.0-1.0)
+
+        Returns:
+            (x, y) window-relative coordinates or None if cannot determine
+        """
+        if not self._screen:
+            return None
+
+        # Try template matching first
+        if self._template_matcher:
+            screen_image = self._screen.capture_window()
+            if screen_image is not None:
+                match = self._template_matcher.match(screen_image, template_name)
+                if match.found:
+                    self._logger.debug(
+                        "Template %s found at (%d, %d) with confidence %.2f",
+                        template_name, match.center_x, match.center_y, match.confidence
+                    )
+                    return (match.center_x, match.center_y)
+
+        # Fallback to proportional position
+        bounds = self._screen.window_bounds
+        if not bounds:
+            return None
+
+        fallback_x = int(bounds.width * fallback_x_ratio)
+        fallback_y = int(bounds.height * fallback_y_ratio)
+        self._logger.debug(
+            "Using fallback position for %s: (%d, %d)",
+            template_name, fallback_x, fallback_y
+        )
+        return (fallback_x, fallback_y)
+
     def _get_herblore_position(self) -> Optional[tuple[int, int]]:
         """Get screen position of herblore skill icon.
 
-        The skills tab has a 3x8 grid layout. Herblore is skill #16 (row 5, col 1).
-        Position is relative to the skills panel which is on the right side.
+        Uses template matching to find the herblore skill icon, with fallback
+        to proportional position based on window size.
 
         Returns:
             (x, y) screen coordinates or None if cannot determine
@@ -169,38 +214,14 @@ class SkillChecker:
         if not bounds:
             return None
 
-        # Skills panel is on the right side of the game window
-        # Standard fixed-size client: 765x503
-        # Skills panel starts around x=550, y=210
-        # Each skill icon is approximately 58x32 pixels in a 3-column layout
-        # Herblore is row 5 (0-indexed), column 0
+        # Herblore position: 67.1% horizontal, 34.4% vertical (measured from 1208x802)
+        pos = self._detect_ui_element("herblore_skill.png", 0.671, 0.344)
+        if not pos:
+            return None
 
-        # Skills panel position (relative to window)
-        panel_x = 550
-        panel_y = 210
-
-        # Skill slot dimensions
-        skill_width = 58
-        skill_height = 32
-
-        # Herblore position: row 5, column 0 (0-indexed)
-        # Skills are ordered: Attack, Strength, Defence, Ranged, Prayer, Magic,
-        # Runecraft, Construction, Hitpoints, Agility, Herblore, ...
-        # Row 0: Attack, Hitpoints, Mining
-        # Row 1: Strength, Agility, Smithing
-        # Row 2: Defence, Herblore, Fishing
-        # Herblore is row 2, column 1
-
-        herblore_row = 2
-        herblore_col = 1
-
-        # Calculate center of herblore skill
-        skill_x = panel_x + (herblore_col * skill_width) + (skill_width // 2)
-        skill_y = panel_y + (herblore_row * skill_height) + (skill_height // 2)
-
-        # Add window offset
-        screen_x = bounds.x + skill_x
-        screen_y = bounds.y + skill_y
+        # Add window offset to convert to screen coordinates
+        screen_x = bounds.x + pos[0]
+        screen_y = bounds.y + pos[1]
 
         # Add small random offset for human-like targeting
         offset_x = self._rng.integers(-8, 9)
@@ -211,7 +232,8 @@ class SkillChecker:
     def _get_skills_tab_position(self) -> Optional[tuple[int, int]]:
         """Get screen position of skills tab icon.
 
-        Skills tab icon is at x=509, y=205 (30x30 pixels) relative to game window.
+        Uses template matching to find the skills tab icon, with fallback
+        to proportional position based on window size.
 
         Returns:
             (x, y) screen coordinates or None if cannot determine
@@ -223,19 +245,14 @@ class SkillChecker:
         if not bounds:
             return None
 
-        # Skills tab icon position (relative to window)
-        tab_x = 509
-        tab_y = 205
-        tab_width = 30
-        tab_height = 30
+        # Skills tab position: 63.4% horizontal, 24.7% vertical (measured from 1208x802)
+        pos = self._detect_ui_element("skills_tab.png", 0.634, 0.247)
+        if not pos:
+            return None
 
-        # Calculate center of tab icon
-        center_x = tab_x + (tab_width // 2)
-        center_y = tab_y + (tab_height // 2)
-
-        # Add window offset
-        screen_x = bounds.x + center_x
-        screen_y = bounds.y + center_y
+        # Add window offset to convert to screen coordinates
+        screen_x = bounds.x + pos[0]
+        screen_y = bounds.y + pos[1]
 
         # Add small random offset for human-like targeting
         offset_x = self._rng.integers(-5, 6)
@@ -246,7 +263,8 @@ class SkillChecker:
     def _get_inventory_tab_position(self) -> Optional[tuple[int, int]]:
         """Get screen position of inventory tab icon.
 
-        Inventory tab icon is at x=571, y=205 (30x30 pixels) relative to game window.
+        Uses template matching to find the inventory tab icon, with fallback
+        to proportional position based on window size.
 
         Returns:
             (x, y) screen coordinates or None if cannot determine
@@ -258,19 +276,14 @@ class SkillChecker:
         if not bounds:
             return None
 
-        # Inventory tab icon position (relative to window)
-        tab_x = 571
-        tab_y = 205
-        tab_width = 30
-        tab_height = 30
+        # Inventory tab position: 71.6% horizontal, 24.7% vertical (measured from 1208x802)
+        pos = self._detect_ui_element("inventory_tab.png", 0.716, 0.247)
+        if not pos:
+            return None
 
-        # Calculate center of tab icon
-        center_x = tab_x + (tab_width // 2)
-        center_y = tab_y + (tab_height // 2)
-
-        # Add window offset
-        screen_x = bounds.x + center_x
-        screen_y = bounds.y + center_y
+        # Add window offset to convert to screen coordinates
+        screen_x = bounds.x + pos[0]
+        screen_y = bounds.y + pos[1]
 
         # Add small random offset for human-like targeting
         offset_x = self._rng.integers(-5, 6)
