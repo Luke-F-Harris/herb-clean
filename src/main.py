@@ -10,7 +10,7 @@ import logging
 import sys
 from pathlib import Path
 
-from core.bot_controller import BotController
+from bots.herblore.herblore_bot import HerbloreHerbloreBotController
 
 
 def setup_logging(verbose: bool = False, log_file: str | None = None) -> None:
@@ -174,7 +174,7 @@ def main() -> int:
     if args.dry_run:
         logger.info("Dry run mode - validating configuration...")
         try:
-            controller = BotController(args.config, overlay_enabled=False)
+            controller = HerbloreBotController(args.config, overlay_enabled=False)
             logger.info("Configuration valid!")
             logger.info("Templates dir: %s", controller.config.templates_dir)
             logger.info("Emergency stop key: %s", controller.config.safety.get("emergency_stop_key"))
@@ -196,7 +196,7 @@ def main() -> int:
                 logger.warning("Pygame not installed, overlay disabled. Run: pip install pygame")
                 args.overlay = False
 
-        controller = BotController(args.config, overlay_enabled=args.overlay)
+        controller = HerbloreBotController(args.config, overlay_enabled=args.overlay)
 
         # Start status UI if requested
         if args.status_ui:

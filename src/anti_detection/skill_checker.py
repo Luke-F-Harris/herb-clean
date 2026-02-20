@@ -8,13 +8,13 @@ from typing import Optional, TYPE_CHECKING
 import cv2
 import numpy as np
 
-from utils import create_rng
+from osrs_botlib.utils import create_rng
 
 if TYPE_CHECKING:
-    from input.keyboard_controller import KeyboardController
-    from input.mouse_controller import MouseController
-    from vision.screen_capture import ScreenCapture
-    from vision.template_matcher import TemplateMatcher
+    from osrs_botlib.input.keyboard_controller import KeyboardController
+    from osrs_botlib.input.mouse_controller import MouseController
+    from osrs_botlib.vision.screen_capture import ScreenCapture
+    from osrs_botlib.vision.template_matcher import TemplateMatcher
 
 
 @dataclass

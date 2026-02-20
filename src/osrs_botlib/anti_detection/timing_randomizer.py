@@ -1,34 +1,23 @@
 """Timing randomization using statistical distributions."""
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
 import numpy as np
 
-from utils import create_rng, gamma_delay, gaussian_bounded
-
-
-class ActionType(Enum):
-    """Types of bot actions for timing purposes."""
-
-    CLICK_HERB = "click_herb"
-    BANK_ACTION = "bank_action"
-    OPEN_BANK = "open_bank"
-    DEPOSIT = "deposit"
-    WITHDRAW = "withdraw"
-    CLOSE_BANK = "close_bank"
+from osrs_botlib.utils import create_rng, gamma_delay, gaussian_bounded
+from osrs_botlib.core.base_actions import ActionCategory
 
 
 @dataclass
 class TimingConfig:
     """Configuration for timing randomization."""
 
-    # Herb cleaning (fast clicking)
-    click_herb_mean: float = 250  # ms
-    click_herb_std: float = 75
-    click_herb_min: float = 150
-    click_herb_max: float = 500
+    # Skill action (clicking herb, chopping tree, catching fish, etc.)
+    skill_action_mean: float = 250  # ms
+    skill_action_std: float = 75
+    skill_action_min: float = 150
+    skill_action_max: float = 500
 
     # Bank actions
     bank_action_mean: float = 800
@@ -79,31 +68,30 @@ class TimingRandomizer:
         """
         self._fatigue_multiplier = max(1.0, multiplier)
 
-    def get_delay(self, action_type: ActionType) -> float:
+    def get_delay(self, action_category: ActionCategory) -> float:
         """Get randomized delay for an action.
 
         Uses Gamma distribution for right-skewed, natural timing.
         Applies Markov chain correlation based on recent timing history.
 
         Args:
-            action_type: Type of action
+            action_category: Category of action
 
         Returns:
             Delay in seconds
         """
-        if action_type == ActionType.CLICK_HERB:
+        if action_category == ActionCategory.SKILL_ACTION:
             delay = self._gamma_delay(
-                self.config.click_herb_mean,
-                self.config.click_herb_std,
-                self.config.click_herb_min,
-                self.config.click_herb_max,
+                self.config.skill_action_mean,
+                self.config.skill_action_std,
+                self.config.skill_action_min,
+                self.config.skill_action_max,
             )
-            mean = self.config.click_herb_mean
-        elif action_type in (
-            ActionType.BANK_ACTION,
-            ActionType.OPEN_BANK,
-            ActionType.DEPOSIT,
-            ActionType.WITHDRAW,
+            mean = self.config.skill_action_mean
+        elif action_category in (
+            ActionCategory.BANK_OPEN,
+            ActionCategory.BANK_DEPOSIT,
+            ActionCategory.BANK_WITHDRAW,
         ):
             delay = self._gamma_delay(
                 self.config.bank_action_mean,
@@ -112,7 +100,7 @@ class TimingRandomizer:
                 self.config.bank_action_max,
             )
             mean = self.config.bank_action_mean
-        elif action_type == ActionType.CLOSE_BANK:
+        elif action_category == ActionCategory.BANK_CLOSE:
             delay = self._gamma_delay(
                 self.config.after_bank_close,
                 self.config.after_bank_close * 0.3,
@@ -125,7 +113,7 @@ class TimingRandomizer:
             mean = 500
 
         # Apply Markov timing correlation
-        delay = self._apply_timing_correlation(delay, mean, action_type)
+        delay = self._apply_timing_correlation(delay, mean, action_category)
 
         # Apply fatigue
         delay *= self._fatigue_multiplier
@@ -136,7 +124,7 @@ class TimingRandomizer:
         return delay / 1000.0  # Convert to seconds
 
     def _apply_timing_correlation(
-        self, delay: float, mean: float, action_type: ActionType
+        self, delay: float, mean: float, action_category: ActionCategory
     ) -> float:
         """Apply Markov chain correlation based on recent timing history.
 
@@ -145,8 +133,8 @@ class TimingRandomizer:
 
         Args:
             delay: Base delay in ms
-            mean: Expected mean for this action type
-            action_type: Type of action
+            mean: Expected mean for this action category
+            action_category: Category of action
 
         Returns:
             Adjusted delay in ms
@@ -159,8 +147,8 @@ class TimingRandomizer:
             len(self._speed_history), self.SPEED_HISTORY_SIZE
         )
 
-        # Store mean for this action type for reference
-        self._last_mean_for_action[action_type.value] = mean
+        # Store mean for this action category for reference
+        self._last_mean_for_action[action_category.value] = mean
 
         # Calculate overall average mean across all action types
         if self._last_mean_for_action:
@@ -233,22 +221,22 @@ class TimingRandomizer:
         """
         return gamma_delay(self._rng, mean, std, min_val, max_val)
 
-    def get_post_action_delay(self, action_type: ActionType) -> float:
+    def get_post_action_delay(self, action_category: ActionCategory) -> float:
         """Get delay after completing an action.
 
         Args:
-            action_type: Type of action completed
+            action_category: Category of action completed
 
         Returns:
             Delay in seconds
         """
-        if action_type == ActionType.OPEN_BANK:
+        if action_category == ActionCategory.BANK_OPEN:
             base = self.config.after_bank_open
-        elif action_type == ActionType.DEPOSIT:
+        elif action_category == ActionCategory.BANK_DEPOSIT:
             base = self.config.after_deposit
-        elif action_type == ActionType.WITHDRAW:
+        elif action_category == ActionCategory.BANK_WITHDRAW:
             base = self.config.after_withdraw
-        elif action_type == ActionType.CLOSE_BANK:
+        elif action_category == ActionCategory.BANK_CLOSE:
             base = self.config.after_bank_close
         else:
             base = 200

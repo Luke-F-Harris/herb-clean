@@ -19,7 +19,7 @@ except ImportError:
 
 if TYPE_CHECKING:
     from core.status_aggregator import StatusAggregator
-    from core.events import EventEmitter, AntiDetectionEvent
+    from osrs_botlib.core.events import EventEmitter, AntiDetectionEvent
 
 
 def format_time_short(seconds: float) -> str:
@@ -82,7 +82,7 @@ class StatusDisplay:
         Args:
             event: The event that occurred
         """
-        from core.events import EventType
+        from osrs_botlib.core.events import EventType
 
         if event.event_type == EventType.DRIFT:
             self._last_drift_target = event.data.get("target", "")
@@ -343,7 +343,7 @@ class StatusDisplay:
         if self._events:
             current = self._events.get_current_event()
             if current:
-                from core.events import EventType
+                from osrs_botlib.core.events import EventType
 
                 if current.event_type == EventType.BREAK_START:
                     break_type = current.data.get("break_type", "micro")
@@ -390,7 +390,7 @@ class StatusDisplay:
             time_str = format_time_short(event_time)
 
             # Format event description
-            from core.events import EventType
+            from osrs_botlib.core.events import EventType
 
             if event.event_type == EventType.DRIFT:
                 target = event.data.get("target", "unknown")

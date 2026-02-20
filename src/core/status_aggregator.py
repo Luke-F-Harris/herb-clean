@@ -5,13 +5,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from anti_detection.fatigue_simulator import FatigueSimulator
-    from anti_detection.break_scheduler import BreakScheduler
-    from anti_detection.timing_randomizer import TimingRandomizer
-    from anti_detection.attention_drift import AttentionDrift
+    from osrs_botlib.anti_detection.fatigue_simulator import FatigueSimulator
+    from osrs_botlib.anti_detection.break_scheduler import BreakScheduler
+    from osrs_botlib.anti_detection.timing_randomizer import TimingRandomizer
+    from osrs_botlib.anti_detection.attention_drift import AttentionDrift
     from anti_detection.skill_checker import SkillChecker
-    from safety.session_tracker import SessionTracker
-    from core.state_machine import HerbCleaningStateMachine
+    from bots.herblore.herb_session import HerbSessionTracker
+    from bots.herblore.herblore_states import HerbCleaningStateMachine
 
 
 @dataclass
