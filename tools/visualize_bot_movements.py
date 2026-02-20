@@ -108,13 +108,29 @@ except Exception:
 
 # Try to load overlay modules for detection visualization
 try:
+    # Load detection_data first (dependency of overlay_renderer)
     _detection_data_mod = _load_module_direct(
         "detection_data",
         _src_dir / "ui" / "overlay" / "detection_data.py"
     )
+    # Register it under the package path so relative imports work
+    sys.modules["src.ui.overlay.detection_data"] = _detection_data_mod
+
+    # Create fake overlay package module for relative imports
+    _overlay_pkg = _FakeModule()
+    _overlay_pkg.detection_data = _detection_data_mod
+    _overlay_pkg.SlotDisplayState = _detection_data_mod.SlotDisplayState
+    _overlay_pkg.InventorySlotInfo = _detection_data_mod.InventorySlotInfo
+    _overlay_pkg.MatchInfo = _detection_data_mod.MatchInfo
+    _overlay_pkg.DetectionData = _detection_data_mod.DetectionData
+    _overlay_pkg.WindowBoundsInfo = _detection_data_mod.WindowBoundsInfo
+    sys.modules["src.ui.overlay"] = _overlay_pkg
+
+    # Now load overlay_renderer with the parent package set
     _overlay_renderer_mod = _load_module_direct(
         "overlay_renderer",
-        _src_dir / "ui" / "overlay" / "overlay_renderer.py"
+        _src_dir / "ui" / "overlay" / "overlay_renderer.py",
+        parent_package="src.ui.overlay"
     )
 
     SlotDisplayState = _detection_data_mod.SlotDisplayState
@@ -124,7 +140,7 @@ try:
     WindowBoundsInfo = _detection_data_mod.WindowBoundsInfo
     OverlayRenderer = _overlay_renderer_mod.OverlayRenderer
     HAS_OVERLAY = True
-except Exception:
+except Exception as e:
     HAS_OVERLAY = False
     SlotDisplayState = None
     InventorySlotInfo = None
