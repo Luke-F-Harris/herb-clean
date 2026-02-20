@@ -1,12 +1,15 @@
 """Input driver abstraction layer.
 
-Provides swappable implementations for mouse and keyboard input:
-- pynput: Default, works on Windows/Linux/Mac
-- interception: Windows-only, uses kernel driver for input (less detectable)
+Production (Windows): Uses Interception kernel driver for undetectable input.
+Development (Linux): Uses pynput for testing only.
+
+Interception is REQUIRED for production use. The bot will not run on Windows
+without the Interception driver properly installed.
 """
 
 from .base import MouseButton, MouseDriverProtocol, KeyboardDriverProtocol
 from .factory import DriverFactory, create_mouse_driver, create_keyboard_driver
+from .validation import require_interception, InterceptionNotInstalledError
 
 __all__ = [
     "MouseButton",
@@ -15,4 +18,6 @@ __all__ = [
     "DriverFactory",
     "create_mouse_driver",
     "create_keyboard_driver",
+    "require_interception",
+    "InterceptionNotInstalledError",
 ]

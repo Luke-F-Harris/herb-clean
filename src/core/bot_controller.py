@@ -18,6 +18,7 @@ from vision.inventory_detector import InventoryDetector
 from vision.bank_detector import BankDetector
 from input.mouse_controller import MouseController
 from input.bezier_movement import MovementConfig
+from input.drivers.validation import require_interception
 from input.organic_easing import OrganicEasingConfig
 from input.click_handler import ClickConfig, ClickTarget
 from input.keyboard_controller import KeyboardController
@@ -44,6 +45,9 @@ class BotController:
         """
         self._logger = logging.getLogger(__name__)
         self._overlay_enabled = overlay_enabled
+
+        # Validate Interception driver is installed (required for undetectable input)
+        require_interception()
 
         # Load configuration
         self.config = ConfigManager(config_path)

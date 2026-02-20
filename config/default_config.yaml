@@ -1,12 +1,12 @@
 # Input driver configuration
-# Options: pynput (default), interception (Windows only, less detectable)
-# Interception requires driver installation:
+# Uses Interception for kernel-level input (undetectable by userspace anti-cheat)
+# Installation required:
 #   1. Download from: https://github.com/oblitum/Interception/releases
-#   2. Run: install-interception.exe /install
-#   3. Reboot
+#   2. Run as admin: install-interception.exe /install
+#   3. Reboot (required for kernel driver)
 #   4. pip install interception-python
 input:
-  driver: pynput
+  driver: interception
 
 window:
   title: RuneLite

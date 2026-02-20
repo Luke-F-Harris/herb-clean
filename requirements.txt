@@ -7,4 +7,5 @@ python-statemachine>=2.1.0
 Pillow>=10.0.0
 pygame>=2.5.0
 pywin32>=306; sys_platform == 'win32'
+interception-python>=0.3.0; sys_platform == 'win32'
 rich>=13.0.0
