@@ -8,6 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
+from utils import create_rng, gaussian_bounded
+
 
 @dataclass
 class SessionStats:
@@ -36,7 +40,13 @@ class SessionStats:
 class SessionConfig:
     """Configuration for session tracking."""
 
+    # Variable session length (Gaussian distribution within range)
+    max_session_hours_range: tuple[float, float] = (4.0, 6.0)
+    max_session_hours_std: float = 0.5  # Standard deviation in hours
+
+    # Legacy fixed session length (used if range is None or equal)
     max_session_hours: float = 4.0
+
     stats_log_interval: float = 60.0  # seconds
     log_file: Optional[Path] = None
 
@@ -56,15 +66,41 @@ class SessionTracker:
         self._last_log_time = 0.0
         self._clean_times: list[float] = []  # For averaging
         self._logger = logging.getLogger(__name__)
+        self._rng = create_rng()
+        self._current_max_hours: float = self.config.max_session_hours
 
     def start_session(self) -> None:
-        """Start a new session."""
+        """Start a new session.
+
+        Selects a variable session length using Gaussian distribution
+        within the configured range.
+        """
         self._stats = SessionStats(start_time=time.time())
         self._is_running = True
         self._last_log_time = time.time()
         self._clean_times = []
 
-        self._logger.info("Session started at %s", datetime.now().isoformat())
+        # Determine session length for this session (variable, Gaussian)
+        min_hours, max_hours = self.config.max_session_hours_range
+        if min_hours < max_hours:
+            # Variable session length with Gaussian distribution
+            mean_hours = (min_hours + max_hours) / 2
+            self._current_max_hours = gaussian_bounded(
+                self._rng,
+                min_hours,
+                max_hours,
+                mean=mean_hours,
+                std=self.config.max_session_hours_std,
+            )
+        else:
+            # Fixed session length (legacy behavior)
+            self._current_max_hours = self.config.max_session_hours
+
+        self._logger.info(
+            "Session started at %s (max duration: %.1f hours)",
+            datetime.now().isoformat(),
+            self._current_max_hours,
+        )
 
     def end_session(self) -> SessionStats:
         """End the current session.
@@ -162,7 +198,7 @@ class SessionTracker:
         Returns:
             True if session should end
         """
-        max_seconds = self.config.max_session_hours * 3600
+        max_seconds = self._current_max_hours * 3600
         return self.get_session_duration() >= max_seconds
 
     def get_time_remaining(self) -> float:
@@ -171,9 +207,17 @@ class SessionTracker:
         Returns:
             Time remaining in seconds
         """
-        max_seconds = self.config.max_session_hours * 3600
+        max_seconds = self._current_max_hours * 3600
         elapsed = self.get_session_duration()
         return max(0, max_seconds - elapsed)
+
+    def get_current_max_hours(self) -> float:
+        """Get the maximum session length for this session.
+
+        Returns:
+            Max session length in hours
+        """
+        return self._current_max_hours
 
     def _calculate_derived_stats(self) -> None:
         """Calculate derived statistics."""

@@ -83,6 +83,25 @@ mouse:
     # Drift (simulates hand fatigue/recovery)
     drift_rate_range: [-0.05, 0.05]
     drift_curve_range: [0.5, 2.0]
+  # WindMouse (physics-based alternative to Bezier curves)
+  # Uses gravity and wind vectors for natural overshoot behavior
+  windmouse:
+    enabled: false                     # Enable WindMouse as movement option
+    chance: 0.3                        # 30% WindMouse, 70% Bezier when enabled
+    gravity: 9.0                       # Attraction force toward target
+    wind: 3.0                          # Perpendicular oscillating force
+    target_area: 10.0                  # Distance for deceleration (pixels)
+    max_step: 10.0                     # Maximum pixels per iteration
+    wind_change_rate: 0.1              # How quickly wind direction changes
+    min_wait: 2.0                      # Minimum delay per step (ms)
+    max_wait: 10.0                     # Maximum delay per step (ms)
+  # Fitts's Law (explicit target-aware deceleration)
+  # Smaller targets = slower final approach
+  fitts_law:
+    enabled: true
+    a_coefficient: 50.0                # Base time (ms)
+    b_coefficient: 150.0               # Scaling factor
+    deceleration_start: 0.8            # Start slowing at 80% of path
 click:
   position_sigma_ratio: 6
   duration_mean: 100
@@ -130,7 +149,10 @@ vision:
   scale_steps: 3
 safety:
   emergency_stop_key: f12
-  max_session_hours: 4
+  # Variable session length (prevents predictable session patterns)
+  max_session_hours: 4                 # Legacy fixed (fallback)
+  max_session_hours_range: [4.0, 6.0]  # Variable range (Gaussian distribution)
+  max_session_hours_std: 0.5           # Standard deviation in hours
   stats_log_interval: 60
 herbs:
   grimy:

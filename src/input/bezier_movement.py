@@ -7,8 +7,9 @@ from typing import Optional
 
 import numpy as np
 
-from utils import create_rng
+from utils import create_rng, gaussian_bounded
 from .organic_easing import OrganicEasing, OrganicEasingConfig
+from .windmouse import WindMouse, WindMouseConfig
 
 
 @dataclass
@@ -53,6 +54,17 @@ class MovementConfig:
     # Organic easing (replaces mathematical easing functions)
     organic_easing_config: OrganicEasingConfig = field(default_factory=OrganicEasingConfig)
 
+    # WindMouse integration (physics-based alternative to Bezier)
+    windmouse_enabled: bool = False
+    windmouse_chance: float = 0.0  # Probability of using WindMouse vs Bezier
+    windmouse_config: WindMouseConfig = field(default_factory=WindMouseConfig)
+
+    # Fitts's Law deceleration (explicit target-aware slowdown)
+    fitts_enabled: bool = True
+    fitts_a_coefficient: float = 50.0    # Base time (ms)
+    fitts_b_coefficient: float = 150.0   # Scaling factor
+    fitts_decel_start: float = 0.8       # Start slowing at 80% of path
+
 
 @dataclass
 class Point:
@@ -74,26 +86,37 @@ class BezierMovement:
         self.config = config or MovementConfig()
         self._rng = create_rng()
         self._organic_easing = OrganicEasing(self._rng, self.config.organic_easing_config)
+        self._windmouse = WindMouse(self.config.windmouse_config, self._rng)
 
     def generate_path(
         self,
         start: tuple[int, int],
         end: tuple[int, int],
         num_points: int = 50,
+        target_width: float = 10.0,
     ) -> list[tuple[int, int]]:
         """Generate a human-like path between two points.
 
         Uses cubic Bezier curves with randomized control points.
         Includes optional overshoot and correction, micro-corrections, and jitter.
+        May use WindMouse algorithm instead based on configuration.
 
         Args:
             start: Starting (x, y) coordinates
             end: Target (x, y) coordinates
             num_points: Number of points in the path
+            target_width: Width of target area (for Fitts's Law)
 
         Returns:
             List of (x, y) coordinates forming the path
         """
+        # Check if we should use WindMouse instead of Bezier
+        if (
+            self.config.windmouse_enabled
+            and self._rng.random() < self.config.windmouse_chance
+        ):
+            return self._windmouse.get_path_as_tuples(start, end, target_width)
+
         start_point = Point(float(start[0]), float(start[1]))
         end_point = Point(float(end[0]), float(end[1]))
 
@@ -207,8 +230,10 @@ class BezierMovement:
         # Random offsets based on distance - with extra variance if imperfections enabled
         base_variance = self.config.curve_variance
         if self.config.imperfection_enabled:
-            # Add extra variance from config
-            base_variance += self._rng.uniform(0, self.config.control_point_variance)
+            # Add extra variance from config (Gaussian for natural distribution)
+            base_variance += gaussian_bounded(
+                self._rng, 0, self.config.control_point_variance
+            )
 
         # Scale down variance for longer movements to prevent wild curves
         # Short movements (< 100px): full variance
@@ -219,12 +244,12 @@ class BezierMovement:
 
         max_offset = distance * base_variance
 
-        # Generate asymmetric offsets - avoid mirror symmetry
-        offset1 = self._rng.uniform(-max_offset, max_offset)
+        # Generate asymmetric offsets - avoid mirror symmetry (Gaussian for natural clusters)
+        offset1 = gaussian_bounded(self._rng, -max_offset, max_offset)
 
         # Make offset2 intentionally different magnitude (not just opposite sign)
         # This breaks the symmetry that makes curves look bot-like
-        offset2_magnitude = self._rng.uniform(0.3, 1.0) * max_offset
+        offset2_magnitude = gaussian_bounded(self._rng, 0.3, 1.0) * max_offset
         offset2_sign = 1 if self._rng.random() < 0.5 else -1
 
         # 40% chance: same side (C-curve), 60% chance: different sides (S-curve)
@@ -240,14 +265,15 @@ class BezierMovement:
         t_variance = 0.15 if self.config.imperfection_enabled else 0.1
 
         # First control point: anywhere from 0.2 to 0.45 (biased toward start)
-        t1_base = self._rng.uniform(0.25, 0.40)
-        t1 = t1_base + self._rng.uniform(-t_variance, t_variance)
+        # Gaussian distribution clusters control points naturally
+        t1_base = gaussian_bounded(self._rng, 0.25, 0.40)
+        t1 = t1_base + gaussian_bounded(self._rng, -t_variance, t_variance)
         t1 = max(0.15, min(0.50, t1))  # Clamp to valid range
 
         # Second control point: anywhere from 0.55 to 0.85 (biased toward end)
         # Use different variance to break symmetry
-        t2_base = self._rng.uniform(0.60, 0.80)
-        t2 = t2_base + self._rng.uniform(-t_variance * 0.7, t_variance * 1.3)
+        t2_base = gaussian_bounded(self._rng, 0.60, 0.80)
+        t2 = t2_base + gaussian_bounded(self._rng, -t_variance * 0.7, t_variance * 1.3)
         t2 = max(0.50, min(0.90, t2))  # Clamp to valid range
 
         control1 = Point(
@@ -291,7 +317,9 @@ class BezierMovement:
 
         base_variance = self.config.curve_variance
         if self.config.imperfection_enabled:
-            base_variance += self._rng.uniform(0, self.config.control_point_variance)
+            base_variance += gaussian_bounded(
+                self._rng, 0, self.config.control_point_variance
+            )
 
         # Scale down variance for longer movements (same as standard control points)
         if distance > 100:
@@ -304,27 +332,27 @@ class BezierMovement:
         max_offset = distance * base_variance
         controls = []
 
-        # Generate t-values that are intentionally irregular
+        # Generate t-values that are intentionally irregular (Gaussian for natural clustering)
         if num_controls == 3:
             # Three control points at irregular intervals
             t_values = [
-                self._rng.uniform(0.18, 0.32),
-                self._rng.uniform(0.42, 0.58),
-                self._rng.uniform(0.68, 0.82),
+                gaussian_bounded(self._rng, 0.18, 0.32),
+                gaussian_bounded(self._rng, 0.42, 0.58),
+                gaussian_bounded(self._rng, 0.68, 0.82),
             ]
         else:  # 4 control points
             t_values = [
-                self._rng.uniform(0.12, 0.25),
-                self._rng.uniform(0.32, 0.45),
-                self._rng.uniform(0.55, 0.68),
-                self._rng.uniform(0.75, 0.88),
+                gaussian_bounded(self._rng, 0.12, 0.25),
+                gaussian_bounded(self._rng, 0.32, 0.45),
+                gaussian_bounded(self._rng, 0.55, 0.68),
+                gaussian_bounded(self._rng, 0.75, 0.88),
             ]
 
-        # Generate offsets with varying magnitudes
+        # Generate offsets with varying magnitudes (Gaussian for natural clusters)
         prev_offset = 0
         for i, t in enumerate(t_values):
             # Vary magnitude for each control point
-            magnitude = self._rng.uniform(0.3, 1.0) * max_offset
+            magnitude = gaussian_bounded(self._rng, 0.3, 1.0) * max_offset
 
             # Alternate sides with some randomness
             if i == 0:
@@ -356,13 +384,15 @@ class BezierMovement:
         dir_x = dx / distance
         dir_y = dy / distance
 
-        # Random overshoot distance
-        overshoot_dist = self._rng.uniform(
-            self.config.overshoot_distance[0], self.config.overshoot_distance[1]
+        # Random overshoot distance (Gaussian for natural variance)
+        overshoot_dist = gaussian_bounded(
+            self._rng,
+            self.config.overshoot_distance[0],
+            self.config.overshoot_distance[1],
         )
 
-        # Add some perpendicular drift
-        perp_drift = self._rng.uniform(-5, 5)
+        # Add some perpendicular drift (Gaussian)
+        perp_drift = gaussian_bounded(self._rng, -5, 5)
 
         return Point(
             target.x + dir_x * overshoot_dist - dir_y * perp_drift,
@@ -512,15 +542,15 @@ class BezierMovement:
                 dy = next_wp.y - p0.y
                 p2 = Point(p3.x - dx * 0.15, p3.y - dy * 0.15)
 
-            # Add some randomness to control points
+            # Add some randomness to control points (Gaussian for natural variance)
             variance = 0.1
             p1 = Point(
-                p1.x + self._rng.uniform(-variance, variance) * abs(p3.x - p0.x),
-                p1.y + self._rng.uniform(-variance, variance) * abs(p3.y - p0.y),
+                p1.x + gaussian_bounded(self._rng, -variance, variance) * abs(p3.x - p0.x),
+                p1.y + gaussian_bounded(self._rng, -variance, variance) * abs(p3.y - p0.y),
             )
             p2 = Point(
-                p2.x + self._rng.uniform(-variance, variance) * abs(p3.x - p0.x),
-                p2.y + self._rng.uniform(-variance, variance) * abs(p3.y - p0.y),
+                p2.x + gaussian_bounded(self._rng, -variance, variance) * abs(p3.x - p0.x),
+                p2.y + gaussian_bounded(self._rng, -variance, variance) * abs(p3.y - p0.y),
             )
 
             # Generate this segment
@@ -626,10 +656,11 @@ class BezierMovement:
             if idx >= len(result):
                 continue
 
-            # Random deviation magnitude
-            magnitude = self._rng.uniform(
+            # Random deviation magnitude (Gaussian for natural distribution)
+            magnitude = gaussian_bounded(
+                self._rng,
                 self.config.micro_correction_magnitude[0],
-                self.config.micro_correction_magnitude[1]
+                self.config.micro_correction_magnitude[1],
             )
 
             # Random angle for deviation
@@ -679,9 +710,10 @@ class BezierMovement:
 
             # Oscillate with decreasing magnitude toward end
             decay = 1.0 - (i / num_jitter_points) * 0.5  # Reduce jitter as we approach target
-            radius = self._rng.uniform(
+            radius = gaussian_bounded(
+                self._rng,
                 self.config.jitter_radius[0],
-                self.config.jitter_radius[1]
+                self.config.jitter_radius[1],
             ) * decay
 
             # Alternate sides for oscillation effect
@@ -723,9 +755,11 @@ class BezierMovement:
         dy = end[1] - start[1]
         distance = math.sqrt(dx * dx + dy * dy)
 
-        # Random speed within range
-        speed = self._rng.uniform(
-            self.config.speed_range[0], self.config.speed_range[1]
+        # Random speed within range (Gaussian for natural variance)
+        speed = gaussian_bounded(
+            self._rng,
+            self.config.speed_range[0],
+            self.config.speed_range[1],
         )
 
         # Add some minimum time for very short distances
@@ -736,6 +770,7 @@ class BezierMovement:
         self,
         path: list[tuple[int, int]],
         total_time: float,
+        target_width: float = 10.0,
     ) -> list[float]:
         """Calculate delays between path points for natural movement.
 
@@ -747,10 +782,12 @@ class BezierMovement:
         2. Medium frequency waves (gradual speed oscillations)
         3. Low frequency drift (overall speed tendency shifts)
         4. Per-point micro-variation (tiny random fluctuations)
+        5. Fitts's Law deceleration (target-aware slowdown in final approach)
 
         Args:
             path: List of path points
             total_time: Total movement time in seconds
+            target_width: Width of target area for Fitts's Law deceleration
 
         Returns:
             List of delays between consecutive points
@@ -774,9 +811,10 @@ class BezierMovement:
             start_range = int(num_segments * 0.2)
             end_range = int(num_segments * 0.8)
             micro_pause_index = self._rng.integers(start_range, end_range)
-            micro_pause_duration = self._rng.uniform(
+            micro_pause_duration = gaussian_bounded(
+                self._rng,
                 self.config.micro_pause_duration[0],
-                self.config.micro_pause_duration[1]
+                self.config.micro_pause_duration[1],
             )
 
         # Calculate distances between consecutive points
@@ -809,6 +847,12 @@ class BezierMovement:
 
             delays.append(delay)
 
+        # Apply Fitts's Law deceleration in final approach
+        if self.config.fitts_enabled and total_distance > 0:
+            delays = self._apply_fitts_deceleration(
+                delays, total_distance, target_width
+            )
+
         # Normalize to match total time (including micro-pause)
         target_time = total_time + micro_pause_duration
         total_delays = sum(delays)
@@ -817,6 +861,55 @@ class BezierMovement:
             delays = [d * scale for d in delays]
 
         return delays
+
+    def _apply_fitts_deceleration(
+        self,
+        delays: list[float],
+        distance: float,
+        target_width: float,
+    ) -> list[float]:
+        """Apply Fitts's Law deceleration to delays in final approach.
+
+        Fitts's Law: MT = a + b * log2(D/W + 1)
+        Smaller targets require more careful (slower) final approach.
+
+        Args:
+            delays: Original delay list
+            distance: Total movement distance
+            target_width: Width of target area
+
+        Returns:
+            Modified delays with Fitts's Law deceleration applied
+        """
+        if len(delays) == 0:
+            return delays
+
+        num_segments = len(delays)
+        decel_start_idx = int(num_segments * self.config.fitts_decel_start)
+
+        # Calculate expected slowdown based on Fitts's Law
+        # MT = a + b * log2(D/W + 1)
+        if target_width > 0:
+            index_of_difficulty = math.log2(distance / target_width + 1)
+        else:
+            index_of_difficulty = math.log2(distance / 10 + 1)
+
+        # Smaller targets = higher difficulty = more deceleration
+        # Normalize difficulty to a multiplier (1.0 to 2.0 range)
+        decel_strength = 1.0 + min(1.0, index_of_difficulty / 5.0)
+
+        result = list(delays)
+        for i in range(decel_start_idx, num_segments):
+            # Calculate progress through deceleration phase
+            decel_progress = (i - decel_start_idx) / max(1, num_segments - decel_start_idx)
+
+            # Exponential deceleration (slower and slower)
+            # Higher decel_strength = more pronounced slowdown
+            decel_factor = 1.0 + (decel_strength - 1.0) * (decel_progress ** 1.5)
+
+            result[i] *= decel_factor
+
+        return result
 
     def _generate_speed_profile(self, num_segments: int, movement_distance: float = 100) -> list[float]:
         """Generate a continuous speed profile with gradual variations.
@@ -870,15 +963,15 @@ class BezierMovement:
             asymmetry = self._rng.uniform(-0.15, 0.15)
 
         # Secondary waves: medium frequency oscillations (2-4 cycles)
-        # These add variation on top of the base curve
+        # These add variation on top of the base curve (Gaussian for natural clustering)
         num_waves = self._rng.integers(2, 5)
-        wave_amplitudes = [self._rng.uniform(0.08, 0.20) for _ in range(num_waves)]
-        wave_phases = [self._rng.uniform(0, 2 * math.pi) for _ in range(num_waves)]
-        wave_frequencies = [self._rng.uniform(1.5, 4.0) for _ in range(num_waves)]
+        wave_amplitudes = [gaussian_bounded(self._rng, 0.08, 0.20) for _ in range(num_waves)]
+        wave_phases = [gaussian_bounded(self._rng, 0, 2 * math.pi) for _ in range(num_waves)]
+        wave_frequencies = [gaussian_bounded(self._rng, 1.5, 4.0) for _ in range(num_waves)]
 
         # Drift: gradual shift in overall speed (like hand fatigue/recovery)
         drift_direction = self._rng.choice([-1, 1])
-        drift_strength = self._rng.uniform(0.0, 0.15)
+        drift_strength = gaussian_bounded(self._rng, 0.0, 0.15)
 
         # Generate smooth noise for micro-variation using cumulative random walk
         noise = self._generate_smooth_noise(num_segments, smoothness=0.85)
@@ -927,7 +1020,8 @@ class BezierMovement:
     def _generate_smooth_noise(self, length: int, smoothness: float = 0.8) -> list[float]:
         """Generate smooth random noise using exponential moving average.
 
-        Creates noise that varies gradually, not abruptly.
+        Creates noise that varies gradually, not abruptly. Uses Gaussian
+        distribution for more natural clustering around zero.
 
         Args:
             length: Number of noise values to generate
@@ -937,11 +1031,11 @@ class BezierMovement:
             List of noise values in range [-1, 1]
         """
         noise = []
-        current = self._rng.uniform(-1, 1)
+        current = gaussian_bounded(self._rng, -1, 1)
 
         for _ in range(length):
-            # Blend current value with new random value
-            target = self._rng.uniform(-1, 1)
+            # Blend current value with new random value (Gaussian for natural distribution)
+            target = gaussian_bounded(self._rng, -1, 1)
             current = smoothness * current + (1 - smoothness) * target
             noise.append(current)
 

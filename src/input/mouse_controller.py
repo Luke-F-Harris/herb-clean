@@ -6,7 +6,7 @@ from typing import Optional, Callable
 import numpy as np
 from pynput.mouse import Button, Controller as MouseDriver
 
-from utils import create_rng
+from utils import create_rng, gaussian_bounded
 from .bezier_movement import BezierMovement, MovementConfig
 from .click_handler import ClickHandler, ClickConfig, ClickTarget
 
@@ -199,8 +199,8 @@ class MouseController:
             if not self.move_to(int(hx), int(hy), num_points=20):
                 return False
 
-            # Brief pause
-            time.sleep(self._rng.uniform(0.03, 0.08))
+            # Brief pause (Gaussian for natural timing)
+            time.sleep(gaussian_bounded(self._rng, 0.03, 0.08))
 
         return True
 
@@ -285,9 +285,10 @@ class MouseController:
             self._mouse.release(button)
 
             # Correction: pause (human reaction time), then click correctly
-            correction_delay = self._rng.uniform(
+            correction_delay = gaussian_bounded(
+                self._rng,
                 self._correction_delay[0],
-                self._correction_delay[1]
+                self._correction_delay[1],
             )
             time.sleep(correction_delay)
 
@@ -380,8 +381,8 @@ class MouseController:
         if not self.move_to(stop_x, stop_y):
             return False, False
 
-        # Brief pause (realizing we're in wrong spot)
-        time.sleep(self._rng.uniform(0.05, 0.15))
+        # Brief pause (realizing we're in wrong spot, Gaussian timing)
+        time.sleep(gaussian_bounded(self._rng, 0.05, 0.15))
 
         # Correct to actual target
         corrected = self.click_handler.calculate_click(target)
@@ -502,16 +503,16 @@ class MouseController:
         dx, dy = directions[self._rng.integers(0, len(directions))]
 
         # Calculate drag distance (partial distance toward adjacent cell)
-        # Drag 30-70% of the way to the adjacent cell
-        drag_ratio = self._rng.uniform(0.3, 0.7)
+        # Drag 30-70% of the way to the adjacent cell (Gaussian distribution)
+        drag_ratio = gaussian_bounded(self._rng, 0.3, 0.7)
         drag_x = int(dx * slot_width * drag_ratio)
         drag_y = int(dy * slot_height * drag_ratio)
 
         # Press and hold (accidentally holding too long)
         self._mouse.press(button)
 
-        # Brief hold before accidental drag starts
-        time.sleep(self._rng.uniform(0.08, 0.15))
+        # Brief hold before accidental drag starts (Gaussian timing)
+        time.sleep(gaussian_bounded(self._rng, 0.08, 0.15))
 
         # Drag toward adjacent cell
         if not self.move_to(x + drag_x, y + drag_y, num_points=25):
@@ -521,8 +522,8 @@ class MouseController:
         # Release (realizing the mistake)
         self._mouse.release(button)
 
-        # Brief pause (human reaction to mistake)
-        time.sleep(self._rng.uniform(0.1, 0.25))
+        # Brief pause (human reaction to mistake, Gaussian timing)
+        time.sleep(gaussian_bounded(self._rng, 0.1, 0.25))
 
         # Move back and click correctly
         if not self.move_to(x, y, num_points=30):
@@ -734,8 +735,8 @@ class MouseController:
         if not self.move_to(stop_x, stop_y):
             return False, False
 
-        # Brief pause realizing we're wrong
-        time.sleep(self._rng.uniform(0.05, 0.15))
+        # Brief pause realizing we're wrong (Gaussian timing)
+        time.sleep(gaussian_bounded(self._rng, 0.05, 0.15))
 
         # Now do swift click to correct position
         return self._execute_swift_click(target, button, follow_through_points)

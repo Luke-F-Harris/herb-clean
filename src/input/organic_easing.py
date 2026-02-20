@@ -16,6 +16,8 @@ from typing import Optional
 
 import numpy as np
 
+from utils import gaussian_bounded
+
 
 @dataclass
 class OrganicEasingConfig:
@@ -67,32 +69,34 @@ class OrganicEasing:
         """
         cfg = self.config
 
-        # Inflection point: where acceleration peaks
-        inflection = self._rng.uniform(*cfg.inflection_range)
+        # Inflection point: where acceleration peaks (Gaussian for natural clustering)
+        inflection = gaussian_bounded(self._rng, cfg.inflection_range[0], cfg.inflection_range[1])
 
         # Asymmetric rise/fall powers (avoids perfect quadratic)
-        rise_power = self._rng.uniform(*cfg.power_range)
-        fall_power = self._rng.uniform(*cfg.power_range)
+        rise_power = gaussian_bounded(self._rng, cfg.power_range[0], cfg.power_range[1])
+        fall_power = gaussian_bounded(self._rng, cfg.power_range[0], cfg.power_range[1])
 
         # Overall amplitude variation
-        amplitude = self._rng.uniform(*cfg.amplitude_range)
+        amplitude = gaussian_bounded(self._rng, cfg.amplitude_range[0], cfg.amplitude_range[1])
 
-        # Generate noise octaves with random frequencies/amplitudes/phases
+        # Generate noise octaves with random frequencies/amplitudes/phases (Gaussian)
         noise_octaves = []
         for i in range(cfg.noise_octaves):
             octave = {
-                'freq': self._rng.uniform(1.5 + i * 1.5, 3.0 + i * 2.0),
-                'amp': self._rng.uniform(0.01, 0.04) / (i + 1),  # Decreasing amplitude
-                'phase': self._rng.uniform(0, 2 * math.pi),
+                'freq': gaussian_bounded(self._rng, 1.5 + i * 1.5, 3.0 + i * 2.0),
+                'amp': gaussian_bounded(self._rng, 0.01, 0.04) / (i + 1),  # Decreasing amplitude
+                'phase': gaussian_bounded(self._rng, 0, 2 * math.pi),
             }
             noise_octaves.append(octave)
 
         # Perturbation strength
-        perturbation_strength = self._rng.uniform(*cfg.perturbation_strength_range)
+        perturbation_strength = gaussian_bounded(
+            self._rng, cfg.perturbation_strength_range[0], cfg.perturbation_strength_range[1]
+        )
 
         # Drift parameters
-        drift_rate = self._rng.uniform(*cfg.drift_rate_range)
-        drift_curve = self._rng.uniform(*cfg.drift_curve_range)
+        drift_rate = gaussian_bounded(self._rng, cfg.drift_rate_range[0], cfg.drift_rate_range[1])
+        drift_curve = gaussian_bounded(self._rng, cfg.drift_curve_range[0], cfg.drift_curve_range[1])
 
         # Distance-based adjustments
         # Short movements: more erratic, larger relative perturbations
@@ -270,8 +274,8 @@ class OrganicEasing:
         params = self._generate_movement_params(movement_distance)
 
         return {
-            # Replace fixed asymmetry with organic value
-            'asymmetry': self._rng.uniform(-0.2, 0.2),
+            # Replace fixed asymmetry with organic value (Gaussian for natural clustering)
+            'asymmetry': gaussian_bounded(self._rng, -0.2, 0.2),
 
             # Organic inflection affects where peak speed occurs
             'peak_shift': params['inflection'] - 0.5,

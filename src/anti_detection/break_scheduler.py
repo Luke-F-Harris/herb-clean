@@ -7,7 +7,7 @@ from typing import Optional, Callable
 
 import numpy as np
 
-from utils import create_rng
+from utils import create_rng, gaussian_bounded
 
 
 class BreakType(Enum):
@@ -77,11 +77,15 @@ class BreakScheduler:
 
     def _schedule_next_micro_break(self) -> None:
         """Schedule the next micro break."""
-        interval = self._rng.uniform(
-            self.config.micro_interval[0], self.config.micro_interval[1]
+        interval = gaussian_bounded(
+            self._rng,
+            self.config.micro_interval[0],
+            self.config.micro_interval[1],
         )
-        duration = self._rng.uniform(
-            self.config.micro_duration[0], self.config.micro_duration[1]
+        duration = gaussian_bounded(
+            self._rng,
+            self.config.micro_duration[0],
+            self.config.micro_duration[1],
         )
 
         self._next_micro_break = ScheduledBreak(
@@ -92,11 +96,15 @@ class BreakScheduler:
 
     def _schedule_next_long_break(self) -> None:
         """Schedule the next long break."""
-        interval = self._rng.uniform(
-            self.config.long_interval[0], self.config.long_interval[1]
+        interval = gaussian_bounded(
+            self._rng,
+            self.config.long_interval[0],
+            self.config.long_interval[1],
         )
-        duration = self._rng.uniform(
-            self.config.long_duration[0], self.config.long_duration[1]
+        duration = gaussian_bounded(
+            self._rng,
+            self.config.long_duration[0],
+            self.config.long_duration[1],
         )
 
         self._next_long_break = ScheduledBreak(
@@ -131,8 +139,9 @@ class BreakScheduler:
         Returns:
             Actual break duration in seconds
         """
-        # Add some variation to duration
-        actual_duration = scheduled_break.duration * self._rng.uniform(0.8, 1.2)
+        # Add some variation to duration (Gaussian instead of uniform)
+        variance_factor = gaussian_bounded(self._rng, 0.8, 1.2)
+        actual_duration = scheduled_break.duration * variance_factor
 
         if self._on_break_callback:
             self._on_break_callback(scheduled_break.break_type, actual_duration)
@@ -204,8 +213,10 @@ class BreakScheduler:
         Returns:
             Break duration in seconds
         """
-        duration = self._rng.uniform(
-            self.config.micro_duration[0], self.config.micro_duration[1]
+        duration = gaussian_bounded(
+            self._rng,
+            self.config.micro_duration[0],
+            self.config.micro_duration[1],
         )
 
         forced_break = ScheduledBreak(

@@ -6,7 +6,7 @@ from typing import Optional
 
 import numpy as np
 
-from utils import create_rng, clamp
+from utils import create_rng, clamp, gaussian_bounded
 
 
 class DriftTarget(Enum):
@@ -180,8 +180,8 @@ class AttentionDrift:
         Returns:
             Duration in seconds
         """
-        # 0.3 - 2 seconds
-        return self._rng.uniform(0.3, 2.0)
+        # 0.3 - 2 seconds with Gaussian distribution (clusters around ~1.15s)
+        return gaussian_bounded(self._rng, 0.3, 2.0)
 
     def get_drift_count(self) -> int:
         """Get number of drifts performed.

@@ -6,7 +6,7 @@ from typing import Optional
 
 import numpy as np
 
-from utils import create_rng
+from utils import create_rng, gaussian_bounded
 
 
 @dataclass
@@ -99,8 +99,8 @@ class FatigueSimulator:
         time_past_onset = session_minutes - self.config.onset_minutes
         fatigue = 1 - np.exp(-time_past_onset / 60)
 
-        # Add some random variation
-        fatigue *= self._rng.uniform(0.9, 1.1)
+        # Add some random variation (Gaussian for natural distribution)
+        fatigue *= gaussian_bounded(self._rng, 0.9, 1.1)
 
         return min(1.0, max(0.0, fatigue))
 
@@ -116,8 +116,8 @@ class FatigueSimulator:
         # Linear interpolation
         slowdown = 1.0 + (fatigue * max_slowdown)
 
-        # Add random variation
-        slowdown *= self._rng.uniform(0.95, 1.05)
+        # Add random variation (Gaussian for natural distribution)
+        slowdown *= gaussian_bounded(self._rng, 0.95, 1.05)
 
         return slowdown
 
@@ -146,8 +146,8 @@ class FatigueSimulator:
         """
         time_since_break = self.get_time_since_break()
 
-        # Check against interval with some randomness
-        interval = self._rng.uniform(micro_interval[0], micro_interval[1])
+        # Check against interval with Gaussian randomness
+        interval = gaussian_bounded(self._rng, micro_interval[0], micro_interval[1])
 
         return time_since_break >= interval
 
@@ -185,8 +185,8 @@ class FatigueSimulator:
         Returns:
             Duration in seconds
         """
-        # 1-5 seconds
-        return self._rng.uniform(1, 5)
+        # 1-5 seconds with Gaussian distribution (clusters around 3s)
+        return gaussian_bounded(self._rng, 1, 5)
 
     def get_status(self) -> dict:
         """Get current fatigue status.

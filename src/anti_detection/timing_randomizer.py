@@ -6,7 +6,7 @@ from typing import Optional
 
 import numpy as np
 
-from utils import create_rng, gamma_delay
+from utils import create_rng, gamma_delay, gaussian_bounded
 
 
 class ActionType(Enum):
@@ -148,8 +148,8 @@ class TimingRandomizer:
         else:
             base = 200
 
-        # Add random variation (80-120% of base)
-        delay = base * self._rng.uniform(0.8, 1.2)
+        # Add random variation (80-120% of base, Gaussian distribution)
+        delay = base * gaussian_bounded(self._rng, 0.8, 1.2)
 
         # Apply fatigue
         delay *= self._fatigue_multiplier
