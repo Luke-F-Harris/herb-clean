@@ -1,21 +1,37 @@
 """Keyboard input handling with enhanced anti-detection."""
 
 import time
-from typing import Optional
+from typing import Optional, Dict, Any
 
-from pynput.keyboard import Key, Controller as KeyboardDriver
+from pynput.keyboard import Key
 
 import numpy as np
 
 from utils import create_rng
+from .drivers import create_keyboard_driver
 
 
 class KeyboardController:
-    """Handle keyboard input with human-like timing."""
+    """Handle keyboard input with human-like timing.
 
-    def __init__(self):
-        """Initialize keyboard controller."""
-        self._keyboard = KeyboardDriver()
+    Supports multiple input drivers:
+    - pynput (default): Cross-platform, uses Python library
+    - ydotool: Linux-only, uses kernel uinput (less detectable)
+    """
+
+    def __init__(
+        self,
+        driver_name: str = "pynput",
+        driver_config: Optional[Dict[str, Any]] = None,
+    ):
+        """Initialize keyboard controller.
+
+        Args:
+            driver_name: Input driver to use ("pynput" or "ydotool")
+            driver_config: Driver-specific configuration
+        """
+        self._driver = create_keyboard_driver(driver_name, driver_config)
+        self._driver_name = driver_name
         self._rng = create_rng()
         self._stop_flag = False
         self._last_key_time = 0.0
@@ -53,13 +69,18 @@ class KeyboardController:
             duration = self._get_key_duration()
 
         # Press and hold
-        self._keyboard.press(key)
+        self._driver.press(key)
         time.sleep(duration)
-        self._keyboard.release(key)
+        self._driver.release(key)
 
         self._last_key_time = time.time()
 
         return True
+
+    @property
+    def driver_name(self) -> str:
+        """Get the name of the current input driver."""
+        return self._driver_name
 
     def _get_key_duration(self) -> float:
         """Get randomized key hold duration.
@@ -161,9 +182,9 @@ class KeyboardController:
             press_duration = self._get_key_duration()
 
             # Press character
-            self._keyboard.press(char)
+            self._driver.press(char)
             time.sleep(press_duration)
-            self._keyboard.release(char)
+            self._driver.release(char)
 
             # Delay between characters (varied)
             if i < len(text) - 1:
@@ -213,13 +234,13 @@ class KeyboardController:
         """Press and hold Shift key."""
         # Small delay before holding (hand positioning)
         time.sleep(self._rng.uniform(0.01, 0.03))
-        self._keyboard.press(Key.shift)
+        self._driver.press(Key.shift)
 
     def release_shift(self) -> None:
         """Release Shift key."""
         # Small delay before release
         time.sleep(self._rng.uniform(0.01, 0.03))
-        self._keyboard.release(Key.shift)
+        self._driver.release(Key.shift)
 
     def shift_click_ready(self) -> "ShiftClickContext":
         """Context manager for shift-clicking.

@@ -28,10 +28,21 @@ class TraversalPattern(Enum):
 
 
 class InventoryTraversal:
-    """Generate traversal orders for 4x7 inventory grid."""
+    """Generate traversal orders for 4x7 inventory grid.
+
+    Implements Markov chain memory to reduce pattern repetition:
+    - Tracks last N patterns used
+    - Reduces probability of repeating recent patterns
+    - Creates more human-like variation in behavior
+    """
 
     ROWS = 7
     COLS = 4
+
+    # Markov chain config
+    HISTORY_SIZE = 3  # Number of recent patterns to track
+    REPEAT_PENALTY = 0.3  # Multiply weight by this for recently used patterns
+    ADJACENT_PENALTY = 0.6  # Penalty for patterns similar to recent ones
 
     def __init__(
         self,
@@ -57,6 +68,17 @@ class InventoryTraversal:
 
         # Pattern weights (defaults to equal weighting)
         self._weights = pattern_weights or {}
+
+        # Markov chain state: track recent pattern history
+        self._pattern_history: list[str] = []
+
+        # Define similar pattern groups (for adjacent penalty)
+        self._pattern_groups = {
+            "row_horizontal": ["row_ltr", "row_rtl", "row_ltr_bottom", "row_rtl_bottom"],
+            "col_vertical": ["col_ttb", "col_btt", "col_ttb_right", "col_btt_right"],
+            "zigzag": ["zigzag_horizontal", "zigzag_vertical"],
+            "special": ["spiral_inward", "random_shuffle", "weighted_nearest"],
+        }
 
     def generate_order(
         self,
@@ -104,23 +126,108 @@ class InventoryTraversal:
             return self._row_ltr()
 
     def random_pattern(self) -> TraversalPattern:
-        """Select random enabled pattern.
+        """Select random enabled pattern with Markov chain weighting.
+
+        Uses pattern history to reduce repetition:
+        - Recently used patterns get reduced weight
+        - Patterns in same group as recent ones get moderate penalty
+        - Creates more natural variation over time
 
         Returns:
             Randomly selected pattern from enabled list
         """
-        # Build weights array
+        # Build weights array with Markov adjustments
         weights = []
         for name in self._enabled:
-            weights.append(self._weights.get(name, 1.0))
+            base_weight = self._weights.get(name, 1.0)
+            adjusted_weight = self._apply_markov_weights(name, base_weight)
+            weights.append(adjusted_weight)
 
         # Normalize weights
         total = sum(weights)
-        probs = [w / total for w in weights]
+        if total == 0:
+            # Fallback if all weights are zero
+            probs = [1.0 / len(self._enabled)] * len(self._enabled)
+        else:
+            probs = [w / total for w in weights]
 
         # Select pattern
         name = self._rng.choice(self._enabled, p=probs)
+
+        # Update history
+        self._update_pattern_history(name)
+
         return TraversalPattern(name)
+
+    def _apply_markov_weights(self, pattern_name: str, base_weight: float) -> float:
+        """Apply Markov chain penalties based on history.
+
+        Args:
+            pattern_name: Pattern to evaluate
+            base_weight: Base weight before adjustment
+
+        Returns:
+            Adjusted weight
+        """
+        if not self._pattern_history:
+            return base_weight
+
+        weight = base_weight
+
+        # Check for exact repeats (strongest penalty)
+        if pattern_name in self._pattern_history:
+            # More recent = stronger penalty
+            recency = len(self._pattern_history) - self._pattern_history.index(pattern_name)
+            penalty = self.REPEAT_PENALTY ** recency
+            weight *= penalty
+
+        # Check for same-group patterns (moderate penalty)
+        pattern_group = self._get_pattern_group(pattern_name)
+        if pattern_group:
+            for recent in self._pattern_history:
+                if recent != pattern_name and self._get_pattern_group(recent) == pattern_group:
+                    weight *= self.ADJACENT_PENALTY
+                    break  # Only apply once
+
+        return weight
+
+    def _get_pattern_group(self, pattern_name: str) -> Optional[str]:
+        """Get the group a pattern belongs to.
+
+        Args:
+            pattern_name: Pattern name
+
+        Returns:
+            Group name or None
+        """
+        for group_name, patterns in self._pattern_groups.items():
+            if pattern_name in patterns:
+                return group_name
+        return None
+
+    def _update_pattern_history(self, pattern_name: str) -> None:
+        """Update pattern history with new selection.
+
+        Args:
+            pattern_name: Pattern that was selected
+        """
+        self._pattern_history.append(pattern_name)
+
+        # Keep only recent history
+        if len(self._pattern_history) > self.HISTORY_SIZE:
+            self._pattern_history.pop(0)
+
+    def reset_history(self) -> None:
+        """Reset pattern history (call when starting new session)."""
+        self._pattern_history.clear()
+
+    def get_pattern_history(self) -> list[str]:
+        """Get recent pattern history for debugging.
+
+        Returns:
+            List of recent pattern names
+        """
+        return list(self._pattern_history)
 
     def _row_ltr(self) -> list[int]:
         """Row-major, left to right, top to bottom."""

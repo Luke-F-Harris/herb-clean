@@ -5,3 +5,4 @@ from .mouse_controller import MouseController
 from .keyboard_controller import KeyboardController
 from .organic_easing import OrganicEasing, OrganicEasingConfig
 from .windmouse import WindMouse, WindMouseConfig, WindMousePoint
+from .drivers import MouseButton, create_mouse_driver, create_keyboard_driver

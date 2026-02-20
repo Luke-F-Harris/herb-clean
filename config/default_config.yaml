@@ -1,3 +1,10 @@
+# Input driver configuration
+# Options: pynput (default), ydotool (Linux only, less detectable)
+input:
+  driver: pynput
+  ydotool:
+    use_xdotool_fallback: true  # Use xdotool to get initial cursor position
+
 window:
   title: RuneLite
   auto_detect_inventory: true

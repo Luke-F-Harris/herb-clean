@@ -44,7 +44,18 @@ class TimingConfig:
 
 
 class TimingRandomizer:
-    """Generate human-like random delays using statistical distributions."""
+    """Generate human-like random delays using statistical distributions.
+
+    Implements Markov chain timing correlation:
+    - Tracks recent action speeds
+    - If recent actions were fast, biases toward slower next action
+    - If recent actions were slow, biases toward faster next action
+    - Creates natural rhythm variation without pure randomness
+    """
+
+    # Markov chain config
+    SPEED_HISTORY_SIZE = 5  # Number of recent speeds to track
+    CORRELATION_STRENGTH = 0.15  # How strongly to bias based on history
 
     def __init__(self, config: Optional[TimingConfig] = None):
         """Initialize timing randomizer.
@@ -55,6 +66,10 @@ class TimingRandomizer:
         self.config = config or TimingConfig()
         self._rng = create_rng()
         self._fatigue_multiplier = 1.0
+
+        # Markov chain state: track recent timing history
+        self._speed_history: list[float] = []
+        self._last_mean_for_action: dict[str, float] = {}
 
     def set_fatigue_multiplier(self, multiplier: float) -> None:
         """Set fatigue multiplier for delays.
@@ -68,6 +83,7 @@ class TimingRandomizer:
         """Get randomized delay for an action.
 
         Uses Gamma distribution for right-skewed, natural timing.
+        Applies Markov chain correlation based on recent timing history.
 
         Args:
             action_type: Type of action
@@ -82,6 +98,7 @@ class TimingRandomizer:
                 self.config.click_herb_min,
                 self.config.click_herb_max,
             )
+            mean = self.config.click_herb_mean
         elif action_type in (
             ActionType.BANK_ACTION,
             ActionType.OPEN_BANK,
@@ -94,6 +111,7 @@ class TimingRandomizer:
                 self.config.bank_action_min,
                 self.config.bank_action_max,
             )
+            mean = self.config.bank_action_mean
         elif action_type == ActionType.CLOSE_BANK:
             delay = self._gamma_delay(
                 self.config.after_bank_close,
@@ -101,13 +119,100 @@ class TimingRandomizer:
                 self.config.after_bank_close * 0.5,
                 self.config.after_bank_close * 2,
             )
+            mean = self.config.after_bank_close
         else:
             delay = self._gamma_delay(500, 100, 300, 1000)
+            mean = 500
+
+        # Apply Markov timing correlation
+        delay = self._apply_timing_correlation(delay, mean, action_type)
 
         # Apply fatigue
         delay *= self._fatigue_multiplier
 
+        # Record this delay in history
+        self._update_speed_history(delay)
+
         return delay / 1000.0  # Convert to seconds
+
+    def _apply_timing_correlation(
+        self, delay: float, mean: float, action_type: ActionType
+    ) -> float:
+        """Apply Markov chain correlation based on recent timing history.
+
+        If recent actions were fast (below mean), bias toward slower.
+        If recent actions were slow (above mean), bias toward faster.
+
+        Args:
+            delay: Base delay in ms
+            mean: Expected mean for this action type
+            action_type: Type of action
+
+        Returns:
+            Adjusted delay in ms
+        """
+        if len(self._speed_history) < 2:
+            return delay
+
+        # Calculate average of recent delays
+        recent_avg = sum(self._speed_history[-self.SPEED_HISTORY_SIZE:]) / min(
+            len(self._speed_history), self.SPEED_HISTORY_SIZE
+        )
+
+        # Store mean for this action type for reference
+        self._last_mean_for_action[action_type.value] = mean
+
+        # Calculate overall average mean across all action types
+        if self._last_mean_for_action:
+            overall_mean = sum(self._last_mean_for_action.values()) / len(
+                self._last_mean_for_action
+            )
+        else:
+            overall_mean = mean
+
+        # Determine bias direction
+        if recent_avg < overall_mean * 0.9:
+            # Recent actions were fast - bias toward slower
+            # Multiply by 1.0 to 1.0 + CORRELATION_STRENGTH
+            multiplier = gaussian_bounded(
+                self._rng, 1.0, 1.0 + self.CORRELATION_STRENGTH
+            )
+        elif recent_avg > overall_mean * 1.1:
+            # Recent actions were slow - bias toward faster
+            # Multiply by 1.0 - CORRELATION_STRENGTH to 1.0
+            multiplier = gaussian_bounded(
+                self._rng, 1.0 - self.CORRELATION_STRENGTH, 1.0
+            )
+        else:
+            # Recent actions were near average - no bias
+            multiplier = 1.0
+
+        return delay * multiplier
+
+    def _update_speed_history(self, delay: float) -> None:
+        """Update speed history with new delay.
+
+        Args:
+            delay: Delay in ms
+        """
+        self._speed_history.append(delay)
+
+        # Keep only recent history
+        if len(self._speed_history) > self.SPEED_HISTORY_SIZE * 2:
+            self._speed_history = self._speed_history[-self.SPEED_HISTORY_SIZE:]
+
+    def reset_history(self) -> None:
+        """Reset timing history (call when starting new session)."""
+        self._speed_history.clear()
+        self._last_mean_for_action.clear()
+
+    def get_speed_history(self) -> list[float]:
+        """Get recent speed history for debugging.
+
+        Returns:
+            List of recent delays in ms
+        """
+        return list(self._speed_history)
 
     def _gamma_delay(
         self, mean: float, std: float, min_val: float, max_val: float

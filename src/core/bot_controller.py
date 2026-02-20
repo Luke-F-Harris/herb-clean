@@ -7,7 +7,6 @@ from typing import Optional
 import numpy as np
 
 from utils import create_rng
-from pynput.mouse import Button
 
 from .config_manager import ConfigManager
 from .state_machine import HerbCleaningStateMachine, BotState
@@ -101,6 +100,11 @@ class BotController:
         # Post-click drift config
         post_click_drift_cfg = cleaning_cfg.get("post_click_drift", {})
 
+        # Input driver configuration
+        input_cfg = self.config.get_section("input")
+        driver_name = input_cfg.get("driver", "pynput")
+        driver_config = {"ydotool": input_cfg.get("ydotool", {})}
+
         self.mouse = MouseController(
             movement_config=MovementConfig(
                 speed_range=tuple(mouse_cfg.get("speed_range", [800, 1400])),
@@ -153,8 +157,13 @@ class BotController:
             post_click_drift_enabled=post_click_drift_cfg.get("enabled", True),
             post_click_drift_chance=post_click_drift_cfg.get("chance", 0.6),
             post_click_drift_distance=tuple(post_click_drift_cfg.get("distance", [1, 4])),
+            driver_name=driver_name,
+            driver_config=driver_config,
         )
-        self.keyboard = KeyboardController()
+        self.keyboard = KeyboardController(
+            driver_name=driver_name,
+            driver_config=driver_config,
+        )
 
         # Initialize anti-detection components
         timing_cfg = self.config.timing
@@ -218,10 +227,23 @@ class BotController:
 
         # Initialize safety components
         safety_cfg = self.config.safety
+
+        # Use signal file polling for ydotool mode (pynput listener may conflict)
+        use_signal_file = driver_name == "ydotool"
+
         self.emergency_stop = EmergencyStop(
             stop_key=safety_cfg.get("emergency_stop_key", "f12"),
             on_stop_callback=self._handle_emergency_stop,
+            use_signal_file=use_signal_file,
         )
+
+        # Log driver info
+        self._logger.info("Input driver: %s", driver_name)
+        if use_signal_file:
+            self._logger.info(
+                "Using signal file for emergency stop. "
+                "Run 'python tools/emergency_stop_helper.py' before starting."
+            )
         self.session = SessionTracker(
             config=SessionConfig(
                 max_session_hours=safety_cfg.get("max_session_hours", 4),
@@ -239,6 +261,9 @@ class BotController:
 
         self._is_running = False
         self._rng = create_rng()
+
+        # Markov chain state: track last deposit method for correlation
+        self._last_deposit_method: Optional[str] = None
 
         # Initialize event emitter and status aggregator
         self.events = EventEmitter()
@@ -580,17 +605,45 @@ class BotController:
             self._logger.warning("Bank did not open")
             time.sleep(0.5)
 
+    def _choose_deposit_method(self) -> bool:
+        """Choose deposit method with Markov chain correlation.
+
+        Uses history to create correlated behavior:
+        - If last method was herb click, 60% chance to switch to button
+        - If last method was button, 40% chance to switch to herb click
+        - Creates natural variation without pure randomness
+
+        Returns:
+            True to use herb click, False to use deposit button
+        """
+        base_herb_chance = self.config.get("bank.deposit_click_herb_chance", 0.30)
+
+        if self._last_deposit_method is None:
+            # First deposit - use base probability
+            use_herb_click = self._rng.random() < base_herb_chance
+        elif self._last_deposit_method == "herb_click":
+            # Last was herb click - bias toward switching to button (60%)
+            use_herb_click = self._rng.random() < 0.4
+        else:
+            # Last was button - bias toward staying with button (60%)
+            use_herb_click = self._rng.random() < 0.4
+
+        # Update history
+        self._last_deposit_method = "herb_click" if use_herb_click else "button"
+
+        return use_herb_click
+
     def _handle_banking_deposit(self) -> None:
         """Handle depositing cleaned herbs.
 
         Randomly chooses between clicking the deposit button or clicking
         one of the cleaned herbs in the inventory for human-like variation.
+        Uses Markov chain correlation for method selection.
         """
         self._logger.debug("Depositing herbs...")
 
-        # Randomize deposit method: deposit button vs click clean herb
-        click_herb_chance = self.config.get("bank.deposit_click_herb_chance", 0.30)
-        use_herb_click = self._rng.random() < click_herb_chance
+        # Use correlated method selection
+        use_herb_click = self._choose_deposit_method()
 
         if use_herb_click:
             # Try to click a random clean herb in inventory

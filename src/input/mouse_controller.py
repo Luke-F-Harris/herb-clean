@@ -1,18 +1,23 @@
-"""Mouse movement orchestration using pynput."""
+"""Mouse movement orchestration with swappable input drivers."""
 
 import time
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 
 import numpy as np
-from pynput.mouse import Button, Controller as MouseDriver
 
 from utils import create_rng, gaussian_bounded
 from .bezier_movement import BezierMovement, MovementConfig
 from .click_handler import ClickHandler, ClickConfig, ClickTarget
+from .drivers import MouseButton, create_mouse_driver
 
 
 class MouseController:
-    """Orchestrate human-like mouse movement and clicks."""
+    """Orchestrate human-like mouse movement and clicks.
+
+    Supports multiple input drivers:
+    - pynput (default): Cross-platform, uses Python library
+    - ydotool: Linux-only, uses kernel uinput (less detectable)
+    """
 
     def __init__(
         self,
@@ -24,6 +29,8 @@ class MouseController:
         post_click_drift_enabled: bool = True,
         post_click_drift_chance: float = 0.6,
         post_click_drift_distance: tuple[int, int] = (1, 4),
+        driver_name: str = "pynput",
+        driver_config: Optional[Dict[str, Any]] = None,
     ):
         """Initialize mouse controller.
 
@@ -36,8 +43,11 @@ class MouseController:
             post_click_drift_enabled: Whether to enable post-click micro-drift
             post_click_drift_chance: Probability of drift after clicking
             post_click_drift_distance: Range of drift distance in pixels
+            driver_name: Input driver to use ("pynput" or "ydotool")
+            driver_config: Driver-specific configuration
         """
-        self._mouse = MouseDriver()
+        self._driver = create_mouse_driver(driver_name, driver_config)
+        self._driver_name = driver_name
         self.bezier = BezierMovement(movement_config)
         self.click_handler = ClickHandler(click_config)
         self._stop_flag = False
@@ -57,7 +67,7 @@ class MouseController:
     @property
     def position(self) -> tuple[int, int]:
         """Get current mouse position."""
-        return self._mouse.position
+        return self._driver.position
 
     def get_position(self) -> tuple[int, int]:
         """Get current mouse position.
@@ -65,7 +75,12 @@ class MouseController:
         Returns:
             (x, y) tuple of current mouse coordinates
         """
-        return self._mouse.position
+        return self._driver.position
+
+    @property
+    def driver_name(self) -> str:
+        """Get the name of the current input driver."""
+        return self._driver_name
 
     def set_stop_flag(self, stop: bool = True) -> None:
         """Set flag to stop current movement."""
@@ -106,7 +121,7 @@ class MouseController:
             if self._stop_flag:
                 return False
 
-            self._mouse.position = point
+            self._driver.position = point
 
             if self._on_move_callback:
                 self._on_move_callback(point[0], point[1])
@@ -120,7 +135,7 @@ class MouseController:
         self,
         x: int,
         y: int,
-        button: Button = Button.left,
+        button: MouseButton = MouseButton.LEFT,
     ) -> bool:
         """Move to target and click.
 
@@ -137,7 +152,7 @@ class MouseController:
 
         return self.click(button)
 
-    def click(self, button: Button = Button.left) -> bool:
+    def click(self, button: MouseButton = MouseButton.LEFT) -> bool:
         """Perform a click at current position.
 
         Args:
@@ -159,9 +174,9 @@ class MouseController:
         result = self.click_handler.calculate_click(target)
 
         # Press and hold
-        self._mouse.press(button)
+        self._driver.press(button)
         time.sleep(result.duration)
-        self._mouse.release(button)
+        self._driver.release(button)
 
         return True
 
@@ -237,7 +252,7 @@ class MouseController:
     def click_at_target(
         self,
         target: ClickTarget,
-        button: Button = Button.left,
+        button: MouseButton = MouseButton.LEFT,
         misclick_rate: float = 0.0,
         slot_row: Optional[int] = None,
         overshoot_undershoot_rate: float = 0.05,
@@ -280,9 +295,9 @@ class MouseController:
             if not self.move_to(miss_x, miss_y):
                 return False, was_misclick
 
-            self._mouse.press(button)
+            self._driver.press(button)
             time.sleep(click_result.duration)
-            self._mouse.release(button)
+            self._driver.release(button)
 
             # Correction: pause (human reaction time), then click correctly
             correction_delay = gaussian_bounded(
@@ -297,9 +312,9 @@ class MouseController:
             if not self.move_to(corrected.x, corrected.y):
                 return False, was_misclick
 
-            self._mouse.press(button)
+            self._driver.press(button)
             time.sleep(corrected.duration)
-            self._mouse.release(button)
+            self._driver.release(button)
 
             # Post-click drift (subtle hand movement)
             self._post_click_drift()
@@ -317,9 +332,9 @@ class MouseController:
             return False, was_misclick
 
         # Perform click
-        self._mouse.press(button)
+        self._driver.press(button)
         time.sleep(click_result.duration)
-        self._mouse.release(button)
+        self._driver.release(button)
 
         # Post-click drift (subtle hand movement)
         self._post_click_drift()
@@ -332,7 +347,7 @@ class MouseController:
         target_x: int,
         target_y: int,
         click_duration: float,
-        button: Button = Button.left,
+        button: MouseButton = MouseButton.LEFT,
     ) -> tuple[bool, bool]:
         """Perform click with overshoot or undershoot correction.
 
@@ -353,9 +368,9 @@ class MouseController:
             # Too close, just do normal click
             if not self.move_to(target_x, target_y):
                 return False, False
-            self._mouse.press(button)
+            self._driver.press(button)
             time.sleep(click_duration)
-            self._mouse.release(button)
+            self._driver.release(button)
             self._post_click_drift()
             return True, False
 
@@ -390,9 +405,9 @@ class MouseController:
             return False, False
 
         # Click at correct position
-        self._mouse.press(button)
+        self._driver.press(button)
         time.sleep(click_duration)
-        self._mouse.release(button)
+        self._driver.release(button)
 
         # Post-click drift
         self._post_click_drift()
@@ -401,9 +416,9 @@ class MouseController:
 
     def right_click(self) -> bool:
         """Perform a right click at current position."""
-        return self.click(Button.right)
+        return self.click(MouseButton.RIGHT)
 
-    def double_click(self, button: Button = Button.left) -> bool:
+    def double_click(self, button: MouseButton = MouseButton.LEFT) -> bool:
         """Perform a double click at current position."""
         if self._stop_flag:
             return False
@@ -420,7 +435,7 @@ class MouseController:
         self,
         x: int,
         y: int,
-        button: Button = Button.left,
+        button: MouseButton = MouseButton.LEFT,
     ) -> bool:
         """Drag from current position to target.
 
@@ -435,13 +450,13 @@ class MouseController:
         if self._stop_flag:
             return False
 
-        self._mouse.press(button)
+        self._driver.press(button)
         time.sleep(0.05)  # Small delay before drag
 
         result = self.move_to(x, y)
 
         time.sleep(0.05)  # Small delay before release
-        self._mouse.release(button)
+        self._driver.release(button)
 
         return result
 
@@ -452,7 +467,7 @@ class MouseController:
         slot_col: int,
         slot_width: int,
         slot_height: int,
-        button: Button = Button.left,
+        button: MouseButton = MouseButton.LEFT,
     ) -> bool:
         """Accidentally drag item toward an adjacent inventory cell.
 
@@ -494,9 +509,9 @@ class MouseController:
 
         if not directions:
             # Shouldn't happen but fallback to normal click
-            self._mouse.press(button)
+            self._driver.press(button)
             time.sleep(click_result.duration)
-            self._mouse.release(button)
+            self._driver.release(button)
             return True
 
         # Pick random adjacent direction
@@ -509,18 +524,18 @@ class MouseController:
         drag_y = int(dy * slot_height * drag_ratio)
 
         # Press and hold (accidentally holding too long)
-        self._mouse.press(button)
+        self._driver.press(button)
 
         # Brief hold before accidental drag starts (Gaussian timing)
         time.sleep(gaussian_bounded(self._rng, 0.08, 0.15))
 
         # Drag toward adjacent cell
         if not self.move_to(x + drag_x, y + drag_y, num_points=25):
-            self._mouse.release(button)
+            self._driver.release(button)
             return False
 
         # Release (realizing the mistake)
-        self._mouse.release(button)
+        self._driver.release(button)
 
         # Brief pause (human reaction to mistake, Gaussian timing)
         time.sleep(gaussian_bounded(self._rng, 0.1, 0.25))
@@ -529,9 +544,9 @@ class MouseController:
         if not self.move_to(x, y, num_points=30):
             return False
 
-        self._mouse.press(button)
+        self._driver.press(button)
         time.sleep(click_result.duration)
-        self._mouse.release(button)
+        self._driver.release(button)
 
         # Post-click drift
         self._post_click_drift()
@@ -550,7 +565,7 @@ class MouseController:
         if self._stop_flag:
             return False
 
-        self._mouse.scroll(0, clicks)
+        self._driver.scroll(0, clicks)
         return True
 
     def _point_in_target(self, point: tuple[int, int], target: ClickTarget) -> bool:
@@ -573,7 +588,7 @@ class MouseController:
     def swift_click_at_target(
         self,
         target: ClickTarget,
-        button: Button = Button.left,
+        button: MouseButton = MouseButton.LEFT,
         overshoot_undershoot_rate: float = 0.05,
         follow_through_points: int = 8,
     ) -> tuple[bool, bool]:
@@ -607,7 +622,7 @@ class MouseController:
     def _execute_swift_click(
         self,
         target: ClickTarget,
-        button: Button,
+        button: MouseButton,
         follow_through_points: int,
     ) -> tuple[bool, bool]:
         """Execute the swift click motion.
@@ -636,9 +651,9 @@ class MouseController:
         if distance < 20:
             if not self.move_to(target_x, target_y):
                 return False, False
-            self._mouse.press(button)
+            self._driver.press(button)
             time.sleep(click_result.duration)
-            self._mouse.release(button)
+            self._driver.release(button)
             return True, False
 
         # Calculate overshoot destination (20-40 pixels past target)
@@ -667,23 +682,23 @@ class MouseController:
         for i in range(click_index + 1):
             if self._stop_flag:
                 return False, False
-            self._mouse.position = path[i]
+            self._driver.position = path[i]
             if self._on_move_callback:
                 self._on_move_callback(path[i][0], path[i][1])
             if i < len(delays):
                 time.sleep(delays[i])
 
         # Click immediately (shorter hold for swift click)
-        self._mouse.press(button)
+        self._driver.press(button)
         time.sleep(click_result.duration * 0.6)
-        self._mouse.release(button)
+        self._driver.release(button)
 
         # Follow-through: continue past the target
         end_index = min(click_index + follow_through_points, len(path))
         for i in range(click_index + 1, end_index):
             if self._stop_flag:
                 return True, False  # Click already happened
-            self._mouse.position = path[i]
+            self._driver.position = path[i]
             if self._on_move_callback:
                 self._on_move_callback(path[i][0], path[i][1])
             if i < len(delays):
@@ -694,7 +709,7 @@ class MouseController:
     def _swift_click_with_overshoot(
         self,
         target: ClickTarget,
-        button: Button,
+        button: MouseButton,
         follow_through_points: int,
     ) -> tuple[bool, bool]:
         """Swift click with overshoot/undershoot correction first.
