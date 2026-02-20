@@ -1,9 +1,7 @@
 """Emergency stop functionality with hotkey listener."""
 
 import logging
-import os
 import threading
-import time
 from typing import Callable, Optional
 
 from pynput import keyboard
@@ -11,45 +9,26 @@ from pynput import keyboard
 
 logger = logging.getLogger(__name__)
 
-# Signal file used by emergency_stop_helper.py for ydotool mode
-SIGNAL_FILE = "/tmp/osrs_herblore_stop_signal"
-
 
 class EmergencyStop:
-    """Emergency stop handler with F12 hotkey.
-
-    Supports two modes:
-    - pynput mode (default): Uses pynput keyboard listener
-    - ydotool mode: Polls a signal file written by emergency_stop_helper.py
-    """
+    """Emergency stop handler with F12 hotkey."""
 
     def __init__(
         self,
         stop_key: str = "f12",
         on_stop_callback: Optional[Callable[[], None]] = None,
-        use_signal_file: bool = False,
-        poll_interval: float = 0.1,
     ):
         """Initialize emergency stop.
 
         Args:
             stop_key: Key to trigger emergency stop
             on_stop_callback: Function to call on emergency stop
-            use_signal_file: Use signal file polling instead of pynput listener
-                            (for ydotool mode where pynput listener may not work)
-            poll_interval: How often to check signal file (seconds)
         """
         self._stop_key = self._parse_key(stop_key)
         self._on_stop_callback = on_stop_callback
         self._is_stopped = False
         self._listener: Optional[keyboard.Listener] = None
         self._lock = threading.Lock()
-
-        # Signal file polling (for ydotool mode)
-        self._use_signal_file = use_signal_file
-        self._poll_interval = poll_interval
-        self._poll_thread: Optional[threading.Thread] = None
-        self._polling = False
 
     def _parse_key(self, key_str: str) -> keyboard.Key:
         """Parse key string to pynput Key.
@@ -106,79 +85,18 @@ class EmergencyStop:
 
     def start_listening(self) -> None:
         """Start listening for emergency stop key."""
-        if self._use_signal_file:
-            self._start_signal_polling()
-        else:
-            self._start_keyboard_listener()
-
-    def _start_keyboard_listener(self) -> None:
-        """Start pynput keyboard listener."""
         if self._listener is not None:
             return
 
         self._listener = keyboard.Listener(on_press=self._on_key_press)
         self._listener.start()
-        logger.debug("Started keyboard listener for emergency stop")
-
-    def _start_signal_polling(self) -> None:
-        """Start signal file polling thread."""
-        if self._polling:
-            return
-
-        # Clear any existing signal file
-        self._clear_signal_file()
-
-        self._polling = True
-        self._poll_thread = threading.Thread(
-            target=self._poll_signal_file,
-            daemon=True,
-        )
-        self._poll_thread.start()
-        logger.info(
-            "Started signal file polling for emergency stop. "
-            "Run 'python tools/emergency_stop_helper.py' in another terminal."
-        )
-
-    def _poll_signal_file(self) -> None:
-        """Poll signal file for stop signal."""
-        while self._polling:
-            if os.path.exists(SIGNAL_FILE):
-                try:
-                    with open(SIGNAL_FILE, "r") as f:
-                        content = f.read().strip()
-                    if content == "1":
-                        logger.info("Emergency stop signal detected from file")
-                        self.trigger_stop()
-                        # Clear signal file after processing
-                        self._clear_signal_file()
-                except (IOError, OSError) as e:
-                    logger.debug("Error reading signal file: %s", e)
-
-            time.sleep(self._poll_interval)
-
-    def _clear_signal_file(self) -> None:
-        """Clear the signal file."""
-        try:
-            if os.path.exists(SIGNAL_FILE):
-                os.remove(SIGNAL_FILE)
-        except OSError:
-            pass
+        logger.debug("Started keyboard listener for emergency stop (key: %s)", self._stop_key)
 
     def stop_listening(self) -> None:
         """Stop listening for emergency stop key."""
-        # Stop keyboard listener
         if self._listener is not None:
             self._listener.stop()
             self._listener = None
-
-        # Stop signal polling
-        self._polling = False
-        if self._poll_thread is not None:
-            self._poll_thread.join(timeout=1.0)
-            self._poll_thread = None
-
-        # Clean up signal file
-        self._clear_signal_file()
 
     def is_stopped(self) -> bool:
         """Check if emergency stop was triggered.

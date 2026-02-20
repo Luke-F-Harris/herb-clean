@@ -228,22 +228,13 @@ class BotController:
         # Initialize safety components
         safety_cfg = self.config.safety
 
-        # Use signal file polling for ydotool mode (pynput listener may conflict)
-        use_signal_file = driver_name == "ydotool"
-
         self.emergency_stop = EmergencyStop(
             stop_key=safety_cfg.get("emergency_stop_key", "f12"),
             on_stop_callback=self._handle_emergency_stop,
-            use_signal_file=use_signal_file,
         )
 
         # Log driver info
         self._logger.info("Input driver: %s", driver_name)
-        if use_signal_file:
-            self._logger.info(
-                "Using signal file for emergency stop. "
-                "Run 'python tools/emergency_stop_helper.py' before starting."
-            )
         self.session = SessionTracker(
             config=SessionConfig(
                 max_session_hours=safety_cfg.get("max_session_hours", 4),

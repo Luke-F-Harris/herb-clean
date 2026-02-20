@@ -16,10 +16,13 @@ class DriverFactory:
 
     Supports multiple driver backends:
     - pynput: Default, cross-platform (Windows/Linux/Mac)
-    - ydotool: Linux only, uses kernel uinput (less detectable)
+    - interception: Windows only, uses kernel driver (less detectable)
+
+    Note: ydotool (Linux kernel-level) was removed since this project
+    runs on Windows only.
     """
 
-    SUPPORTED_DRIVERS = ["pynput", "ydotool"]
+    SUPPORTED_DRIVERS = ["pynput", "interception"]
 
     @classmethod
     def create_mouse_driver(
@@ -30,7 +33,7 @@ class DriverFactory:
         """Create a mouse driver instance.
 
         Args:
-            driver_name: Driver to use ("pynput" or "ydotool")
+            driver_name: Driver to use ("pynput" or "interception")
             config: Optional driver-specific configuration
 
         Returns:
@@ -44,24 +47,25 @@ class DriverFactory:
         if driver_name == "pynput":
             return PynputMouseDriver()
 
-        elif driver_name == "ydotool":
+        elif driver_name == "interception":
             # Check platform
-            if sys.platform != "linux":
-                raise ValueError("ydotool driver is only available on Linux")
+            if sys.platform != "win32":
+                raise ValueError("interception driver is only available on Windows")
 
-            # Import ydotool driver (lazy to avoid import errors on Windows)
-            from .ydotool_driver import YdotoolMouseDriver, check_ydotool_available
+            # Import interception driver (lazy to avoid import errors on Linux)
+            from .interception_driver import (
+                InterceptionMouseDriver,
+                check_interception_available,
+            )
 
-            if not check_ydotool_available():
+            if not check_interception_available():
                 raise ValueError(
-                    "ydotool not available. Ensure ydotool is installed "
-                    "and ydotoold is running."
+                    "Interception not available. Install the driver from:\n"
+                    "https://github.com/oblitum/Interception/releases\n"
+                    "Then: pip install interception-python"
                 )
 
-            ydotool_config = config.get("ydotool", {})
-            return YdotoolMouseDriver(
-                use_xdotool_fallback=ydotool_config.get("use_xdotool_fallback", True),
-            )
+            return InterceptionMouseDriver()
 
         else:
             raise ValueError(
@@ -78,7 +82,7 @@ class DriverFactory:
         """Create a keyboard driver instance.
 
         Args:
-            driver_name: Driver to use ("pynput" or "ydotool")
+            driver_name: Driver to use ("pynput" or "interception")
             config: Optional driver-specific configuration
 
         Returns:
@@ -92,19 +96,23 @@ class DriverFactory:
         if driver_name == "pynput":
             return PynputKeyboardDriver()
 
-        elif driver_name == "ydotool":
-            if sys.platform != "linux":
-                raise ValueError("ydotool driver is only available on Linux")
+        elif driver_name == "interception":
+            if sys.platform != "win32":
+                raise ValueError("interception driver is only available on Windows")
 
-            from .ydotool_driver import YdotoolKeyboardDriver, check_ydotool_available
+            from .interception_driver import (
+                InterceptionKeyboardDriver,
+                check_interception_available,
+            )
 
-            if not check_ydotool_available():
+            if not check_interception_available():
                 raise ValueError(
-                    "ydotool not available. Ensure ydotool is installed "
-                    "and ydotoold is running."
+                    "Interception not available. Install the driver from:\n"
+                    "https://github.com/oblitum/Interception/releases\n"
+                    "Then: pip install interception-python"
                 )
 
-            return YdotoolKeyboardDriver()
+            return InterceptionKeyboardDriver()
 
         else:
             raise ValueError(
@@ -121,11 +129,11 @@ class DriverFactory:
         """
         available = ["pynput"]  # Always available
 
-        if sys.platform == "linux":
+        if sys.platform == "win32":
             try:
-                from .ydotool_driver import check_ydotool_available
-                if check_ydotool_available():
-                    available.append("ydotool")
+                from .interception_driver import check_interception_available
+                if check_interception_available():
+                    available.append("interception")
             except ImportError:
                 pass
 

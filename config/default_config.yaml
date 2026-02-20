@@ -1,9 +1,12 @@
 # Input driver configuration
-# Options: pynput (default), ydotool (Linux only, less detectable)
+# Options: pynput (default), interception (Windows only, less detectable)
+# Interception requires driver installation:
+#   1. Download from: https://github.com/oblitum/Interception/releases
+#   2. Run: install-interception.exe /install
+#   3. Reboot
+#   4. pip install interception-python
 input:
   driver: pynput
-  ydotool:
-    use_xdotool_fallback: true  # Use xdotool to get initial cursor position
 
 window:
   title: RuneLite

@@ -2,7 +2,7 @@
 
 Provides swappable implementations for mouse and keyboard input:
 - pynput: Default, works on Windows/Linux/Mac
-- ydotool: Linux-only, uses uinput for kernel-level input (less detectable)
+- interception: Windows-only, uses kernel driver for input (less detectable)
 """
 
 from .base import MouseButton, MouseDriverProtocol, KeyboardDriverProtocol
