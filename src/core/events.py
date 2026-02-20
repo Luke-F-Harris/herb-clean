@@ -16,6 +16,7 @@ class EventType(Enum):
     SKILL_CHECK = "skill_check"
     FATIGUE_UPDATE = "fatigue_update"
     ATTENTION_LAPSE = "attention_lapse"
+    VISION_UPDATE = "vision_update"
 
 
 @dataclass
@@ -160,6 +161,17 @@ class EventEmitter:
         self.emit(AntiDetectionEvent(
             event_type=EventType.ATTENTION_LAPSE,
             data={"duration": duration}
+        ))
+
+    def emit_vision_update(self, detection_data) -> None:
+        """Convenience method to emit a vision update event.
+
+        Args:
+            detection_data: DetectionData object with current vision state
+        """
+        self.emit(AntiDetectionEvent(
+            event_type=EventType.VISION_UPDATE,
+            data={"detection_data": detection_data}
         ))
 
     def get_recent(self, count: int = 10) -> list[AntiDetectionEvent]:

@@ -90,6 +90,12 @@ SETUP:
         help="Enable Rich terminal UI for real-time anti-detection status",
     )
 
+    parser.add_argument(
+        "--overlay",
+        action="store_true",
+        help="Enable transparent overlay for vision debugging (Windows click-through)",
+    )
+
     return parser.parse_args()
 
 
@@ -168,7 +174,7 @@ def main() -> int:
     if args.dry_run:
         logger.info("Dry run mode - validating configuration...")
         try:
-            controller = BotController(args.config)
+            controller = BotController(args.config, overlay_enabled=False)
             logger.info("Configuration valid!")
             logger.info("Templates dir: %s", controller.config.templates_dir)
             logger.info("Emergency stop key: %s", controller.config.safety.get("emergency_stop_key"))
@@ -181,7 +187,16 @@ def main() -> int:
     # Run bot
     status_display = None
     try:
-        controller = BotController(args.config)
+        # Check pygame availability if overlay requested
+        if args.overlay:
+            try:
+                import pygame
+                logger.info("Overlay mode enabled")
+            except ImportError:
+                logger.warning("Pygame not installed, overlay disabled. Run: pip install pygame")
+                args.overlay = False
+
+        controller = BotController(args.config, overlay_enabled=args.overlay)
 
         # Start status UI if requested
         if args.status_ui:

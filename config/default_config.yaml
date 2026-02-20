@@ -219,3 +219,11 @@ bank:
   menu_button_template: bank_menu.png
   esc_chance: 0.7
   deposit_click_herb_chance: 0.30  # 30% chance to click herb instead of deposit button
+overlay:
+  enabled: false           # Enable with --overlay flag
+  opacity: 0.7             # Overlay opacity (unused currently, colorkey transparency)
+  fps_limit: 30            # Max overlay render FPS
+  show_inventory: true     # Show inventory slot states
+  show_bank: true          # Show bank detection matches
+  show_state: true         # Show current bot state indicator
+  show_confidence: true    # Show confidence bars on matches

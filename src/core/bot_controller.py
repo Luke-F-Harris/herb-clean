@@ -30,18 +30,21 @@ from anti_detection.skill_checker import SkillChecker, SkillCheckConfig
 from safety.emergency_stop import EmergencyStop
 from safety.session_tracker import SessionTracker, SessionConfig
 from safety.login_handler import LoginHandler, LoginConfig
+from ui.overlay import OverlayManager, check_pygame_available, create_detection_data_from_bot
 
 
 class BotController:
     """Main controller for herb cleaning bot."""
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: Optional[str] = None, overlay_enabled: bool = False):
         """Initialize bot controller.
 
         Args:
             config_path: Path to config file
+            overlay_enabled: Enable transparent overlay for vision debugging
         """
         self._logger = logging.getLogger(__name__)
+        self._overlay_enabled = overlay_enabled
 
         # Load configuration
         self.config = ConfigManager(config_path)
@@ -249,6 +252,48 @@ class BotController:
             state_machine=self.state_machine,
         )
 
+        # Initialize overlay if enabled
+        self.overlay_manager: Optional[OverlayManager] = None
+        if self._overlay_enabled:
+            overlay_config = self.config.get_section("overlay")
+            if check_pygame_available():
+                self.overlay_manager = OverlayManager(
+                    screen_capture=self.screen,
+                    config=overlay_config,
+                )
+                self._logger.info("Overlay manager initialized")
+            else:
+                self._logger.warning("Pygame not available, overlay disabled")
+
+    def _emit_vision_update(
+        self,
+        bank_matches: Optional[list] = None,
+        recent_matches: Optional[list] = None,
+    ) -> None:
+        """Emit vision update for overlay rendering.
+
+        Args:
+            bank_matches: Optional list of bank template matches
+            recent_matches: Optional list of recent template matches
+        """
+        if not self.overlay_manager:
+            return
+
+        try:
+            detection_data = create_detection_data_from_bot(
+                state_name=self.state_machine.get_current_state().value,
+                window_bounds=self.screen.window_bounds,
+                inventory_slots=self.inventory.slots,
+                inventory_config=self.inventory.config,
+                bank_matches=bank_matches,
+                recent_matches=recent_matches,
+                herbs_cleaned=self.session._stats.herbs_cleaned if hasattr(self.session, "_stats") else 0,
+            )
+            self.overlay_manager.update(detection_data)
+            self.events.emit_vision_update(detection_data)
+        except Exception as e:
+            self._logger.debug("Failed to emit vision update: %s", e)
+
     def _handle_emergency_stop(self) -> None:
         """Handle emergency stop trigger."""
         self._logger.warning("EMERGENCY STOP TRIGGERED")
@@ -275,6 +320,11 @@ class BotController:
         self.fatigue.start_session()
         self.breaks.start_session()
 
+        # Start overlay if enabled
+        if self.overlay_manager:
+            self.overlay_manager.start()
+            self._logger.info("Overlay started")
+
         self._is_running = True
 
         try:
@@ -291,6 +341,10 @@ class BotController:
         """Stop the bot."""
         self._logger.info("Stopping bot...")
         self._is_running = False
+
+        # Stop overlay
+        if self.overlay_manager:
+            self.overlay_manager.stop()
 
         self.emergency_stop.stop_listening()
         stats = self.session.end_session()
@@ -399,6 +453,7 @@ class BotController:
         if bank_is_open:
             self._logger.info("Bank is already open")
             self.inventory.detect_inventory_state()
+            self._emit_vision_update()
 
             if not self.inventory.is_inventory_empty():
                 self.state_machine.assessment_to_deposit()
@@ -408,6 +463,7 @@ class BotController:
 
         # Bank is closed - check inventory state
         self.inventory.detect_inventory_state()
+        self._emit_vision_update()
 
         if self.inventory.has_grimy_herbs():
             # Has grimy herbs, go straight to cleaning
@@ -592,6 +648,13 @@ class BotController:
 
         # Find grimy herbs in bank
         herb_match = self.bank.find_grimy_herb_in_bank()
+
+        # Update overlay with bank detection result
+        if herb_match and herb_match.found:
+            self._emit_vision_update(bank_matches=[herb_match])
+        else:
+            self._emit_vision_update()
+
         if not herb_match or not herb_match.found:
             self._logger.warning("Could not find grimy herbs in bank")
             # End session if no herbs
@@ -664,6 +727,9 @@ class BotController:
         """Handle cleaning herbs."""
         # Detect inventory state
         self.inventory.detect_inventory_state()
+
+        # Update overlay with current inventory state
+        self._emit_vision_update()
 
         # Check if we need to bank
         if not self.inventory.has_grimy_herbs():
