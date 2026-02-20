@@ -106,6 +106,33 @@ except Exception:
     TemplateMatcher = None
     MatchResult = None
 
+# Try to load overlay modules for detection visualization
+try:
+    _detection_data_mod = _load_module_direct(
+        "detection_data",
+        _src_dir / "ui" / "overlay" / "detection_data.py"
+    )
+    _overlay_renderer_mod = _load_module_direct(
+        "overlay_renderer",
+        _src_dir / "ui" / "overlay" / "overlay_renderer.py"
+    )
+
+    SlotDisplayState = _detection_data_mod.SlotDisplayState
+    InventorySlotInfo = _detection_data_mod.InventorySlotInfo
+    MatchInfo = _detection_data_mod.MatchInfo
+    DetectionData = _detection_data_mod.DetectionData
+    WindowBoundsInfo = _detection_data_mod.WindowBoundsInfo
+    OverlayRenderer = _overlay_renderer_mod.OverlayRenderer
+    HAS_OVERLAY = True
+except Exception:
+    HAS_OVERLAY = False
+    SlotDisplayState = None
+    InventorySlotInfo = None
+    MatchInfo = None
+    DetectionData = None
+    WindowBoundsInfo = None
+    OverlayRenderer = None
+
 
 class SimpleConfigManager:
     """Minimal config manager that loads YAML without complex dependencies."""
@@ -322,6 +349,14 @@ class BotMovementVisualizer:
 
         # Detected UI positions (populated by detect_ui_positions)
         self.detected_positions: dict[str, tuple[int, int]] = {}
+
+        # Overlay visualization
+        self.overlay_renderer: Optional["OverlayRenderer"] = None  # type: ignore[name-defined]
+        self.show_overlay: bool = False
+
+        # Inventory state tracking for overlay (list of slot states: "grimy", "clean", "empty")
+        # Each entry is (timestamp, list of 28 slot states)
+        self.inventory_transitions: list[tuple[float, list[str]]] = []
 
     def capture_screenshot(self) -> bool:
         """Capture screenshot from RuneLite.
@@ -1382,6 +1417,113 @@ class BotMovementVisualizer:
 
         return current_pos, current_time
 
+    def _add_inventory_transition(self, timestamp: float, slot_states: list[str]) -> None:
+        """Record an inventory state transition at the given timestamp.
+
+        Args:
+            timestamp: Simulation time when this state becomes active
+            slot_states: List of 28 slot states ("grimy", "clean", or "empty")
+        """
+        # Ensure we have 28 slots, padding with "empty" if needed
+        states = list(slot_states)
+        while len(states) < 28:
+            states.append("empty")
+        self.inventory_transitions.append((timestamp, states[:28]))
+
+    def get_inventory_state_at_time(self, t: float) -> list[str]:
+        """Get the inventory slot states at a given simulation time.
+
+        Args:
+            t: Current simulation time in seconds
+
+        Returns:
+            List of 28 slot states ("grimy", "clean", or "empty")
+        """
+        # Default: all empty
+        current = ["empty"] * 28
+        for timestamp, states in self.inventory_transitions:
+            if t >= timestamp:
+                current = states
+            else:
+                break
+        return current
+
+    def get_detection_data_at_time(self, current_time: float) -> Optional["DetectionData"]:  # type: ignore[name-defined]
+        """Generate DetectionData for the current simulation time.
+
+        Args:
+            current_time: Current simulation time in seconds
+
+        Returns:
+            DetectionData object for overlay rendering, or None if overlay not available
+        """
+        if not HAS_OVERLAY:
+            return None
+
+        game_state = self.get_game_state_at_time(current_time)
+        inventory_states = self.get_inventory_state_at_time(current_time)
+
+        # Build inventory slot info
+        inv_cfg = self.config.window.get("inventory", {})
+        inv_x = inv_cfg.get("x", 580)
+        inv_y = inv_cfg.get("y", 230)
+        slot_width = inv_cfg.get("slot_width", 42)
+        slot_height = inv_cfg.get("slot_height", 36)
+
+        slot_infos = []
+        grimy_count = 0
+        clean_count = 0
+        empty_count = 0
+
+        for i, state in enumerate(inventory_states):
+            row = i // 4
+            col = i % 4
+
+            # Calculate slot center (absolute screen coordinates - same as window coords in visualizer)
+            screen_x = inv_x + col * slot_width + slot_width // 2
+            screen_y = inv_y + row * slot_height + slot_height // 2
+
+            # Map state string to SlotDisplayState enum
+            if state == "grimy":
+                display_state = SlotDisplayState.GRIMY
+                grimy_count += 1
+            elif state == "clean":
+                display_state = SlotDisplayState.CLEAN
+                clean_count += 1
+            else:
+                display_state = SlotDisplayState.EMPTY
+                empty_count += 1
+
+            slot_infos.append(InventorySlotInfo(
+                index=i,
+                row=row,
+                col=col,
+                screen_x=screen_x,
+                screen_y=screen_y,
+                width=slot_width,
+                height=slot_height,
+                state=display_state,
+            ))
+
+        # Map GameState to bot state name for display
+        state_map = {
+            GameState.WORLD_VIEW: "idle",
+            GameState.BANK_OPEN: "banking_withdraw",
+            GameState.BANK_OPEN_CLEAN: "banking_deposit",
+            GameState.INVENTORY_GRIMY: "cleaning",
+            GameState.SKILLS_TAB: "skill_check",
+            GameState.HERBLORE_HOVER: "skill_check",
+        }
+
+        return DetectionData(
+            state_name=state_map.get(game_state, "idle"),
+            window_bounds=WindowBoundsInfo(x=0, y=0, width=self.width, height=self.height),
+            inventory_slots=slot_infos,
+            grimy_count=grimy_count,
+            clean_count=clean_count,
+            empty_count=empty_count,
+        )
+
     def simulate_full_cycle(
         self,
         bank_booth_pos: Optional[tuple[int, int]] = None,
@@ -1434,6 +1576,15 @@ class BotMovementVisualizer:
 
         current_time = 0.3  # Initial pause
         current_pos = (self.width // 2, self.height // 2)
+
+        # Initialize inventory state at simulation start
+        if has_clean_herbs:
+            # Start with clean herbs in inventory
+            initial_inv = ["clean"] * num_grimy_herbs + ["empty"] * (28 - num_grimy_herbs)
+        else:
+            # Start with empty inventory
+            initial_inv = ["empty"] * 28
+        self._add_inventory_transition(0.0, initial_inv)
 
         for cycle in range(num_cycles):
             print(f"\n  --- Cycle {cycle + 1}/{num_cycles} ---")
@@ -1506,6 +1657,9 @@ class BotMovementVisualizer:
                 # State transition: inventory now empty, showing normal bank view
                 self._add_state_transition(current_time, GameState.BANK_OPEN)
 
+                # Inventory transition: all slots now empty
+                self._add_inventory_transition(current_time, ["empty"] * 28)
+
             # === STATE: BANKING_WITHDRAW ===
             herb_target = ClickTarget(
                 center_x=grimy_herb_pos[0],
@@ -1545,6 +1699,13 @@ class BotMovementVisualizer:
             # === STATE: CLEANING ===
             # Click grimy herbs using randomized traversal pattern
             herbs_to_clean = min(num_grimy_herbs, len(inventory_slots))
+
+            # Inventory transition: first N slots now grimy, rest empty
+            grimy_inv_state = ["grimy"] * herbs_to_clean + ["empty"] * (28 - herbs_to_clean)
+            self._add_inventory_transition(current_time, grimy_inv_state)
+
+            # Track current inventory state during cleaning (for per-herb updates)
+            current_inv_state = list(grimy_inv_state)
 
             # Select random traversal pattern (same as real bot)
             pattern = self.traversal.random_pattern()
@@ -1623,6 +1784,10 @@ class BotMovementVisualizer:
                 herb_delay = self.timing.get_delay(ActionType.CLICK_HERB)
                 current_time = self._add_delay(current_time, herb_delay)
 
+                # Inventory transition: this slot is now clean
+                current_inv_state[slot_idx] = "clean"
+                self._add_inventory_transition(current_time, current_inv_state)
+
     def init_pygame(self):
         """Initialize pygame display."""
         pygame.init()
@@ -1639,6 +1804,13 @@ class BotMovementVisualizer:
 
         # Load state-specific backgrounds
         self._load_state_backgrounds()
+
+        # Initialize overlay renderer if enabled
+        if self.show_overlay and HAS_OVERLAY:
+            overlay_cfg = self.config.get("overlay", {}) or {}
+            self.overlay_renderer = OverlayRenderer(config=overlay_cfg)
+            self.overlay_renderer.initialize()
+            print("Overlay visualization enabled")
 
     def _load_state_backgrounds(self):
         """Load or create state-specific background images."""
@@ -1985,6 +2157,7 @@ class BotMovementVisualizer:
         self._completed_segments_cache = []
         self._last_cache_time = -1.0
         self.current_state = GameState.WORLD_VIEW
+        self.inventory_transitions = []
 
     def run(self) -> bool:
         """Run the visualization loop.
@@ -2107,6 +2280,18 @@ class BotMovementVisualizer:
             self.draw_action_label(current_time)
             self.draw_instructions()
 
+            # Draw overlay visualization if enabled
+            if self.show_overlay and self.overlay_renderer:
+                detection_data = self.get_detection_data_at_time(current_time)
+                if detection_data:
+                    # Render overlay without clearing (overlay on top of existing content)
+                    self.overlay_renderer.render(
+                        self.screen,
+                        detection_data,
+                        (0, 0, 0),  # Transparent color (not used when clear_surface=False)
+                        clear_surface=False,
+                    )
+
             pygame.display.flip()
             self.clock.tick(60)
 
@@ -2123,6 +2308,11 @@ def main():
     parser.add_argument("--no-deposit", action="store_true", help="Skip deposit step on first cycle")
     parser.add_argument("--debug", action="store_true", help="Show click target rectangles for debugging positions")
     parser.add_argument("--skill-check", action="store_true", help="Force a skill check during the simulation")
+    parser.add_argument(
+        "--overlay",
+        action="store_true",
+        help="Show overlay visualization (inventory states, detection boxes)"
+    )
     args = parser.parse_args()
 
     print("Bot Movement Visualizer")
@@ -2133,6 +2323,12 @@ def main():
     # Initialize visualizer with bot config
     visualizer = BotMovementVisualizer(args.config)
     visualizer.debug_mode = args.debug
+    visualizer.show_overlay = args.overlay
+
+    # Warn if overlay requested but not available
+    if args.overlay and not HAS_OVERLAY:
+        print("WARNING: Overlay modules not available, --overlay ignored")
+        visualizer.show_overlay = False
 
     # Capture screenshot
     if not args.demo:

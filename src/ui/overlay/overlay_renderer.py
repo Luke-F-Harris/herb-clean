@@ -66,6 +66,7 @@ class OverlayRenderer:
         surface: pygame.Surface,
         data: DetectionData,
         transparent_color: tuple[int, int, int],
+        clear_surface: bool = True,
     ) -> None:
         """Render detection data onto surface.
 
@@ -73,12 +74,15 @@ class OverlayRenderer:
             surface: Pygame surface to draw on
             data: Detection data to visualize
             transparent_color: Color to use for transparent areas
+            clear_surface: Whether to clear the surface before rendering (default True).
+                          Set to False when rendering as an overlay on existing content.
         """
         if not self._initialized:
             self.initialize()
 
-        # Clear with transparent color
-        surface.fill(transparent_color)
+        # Clear with transparent color (only if requested)
+        if clear_surface:
+            surface.fill(transparent_color)
 
         if not data.window_bounds:
             return
