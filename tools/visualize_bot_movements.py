@@ -940,6 +940,225 @@ class BotMovementVisualizer:
 
         return (target_x, target_y), final_click_time + click_result.duration
 
+    def _point_in_target(self, point: tuple[int, int], target: ClickTarget) -> bool:
+        """Check if a point is within the target's bounding box."""
+        half_w = target.width // 2
+        half_h = target.height // 2
+        return (
+            target.center_x - half_w <= point[0] <= target.center_x + half_w
+            and target.center_y - half_h <= point[1] <= target.center_y + half_h
+        )
+
+    def _simulate_swift_click(
+        self,
+        start: tuple[int, int],
+        target: ClickTarget,
+        color: tuple[int, int, int],
+        start_time: float,
+        label: str = "",
+        overshoot_undershoot_rate: float = 0.05,
+        follow_through_points: int = 8,
+    ) -> tuple[tuple[int, int], float]:
+        """Simulate swift click that passes through target without stopping.
+
+        This replicates MouseController.swift_click_at_target() behavior:
+        - Generates path to a point past the target
+        - Clicks mid-motion when cursor enters target bounds
+        - Continues follow-through past target
+
+        Args:
+            start: Starting position
+            target: Click target area
+            color: Path color
+            start_time: Start time in simulation
+            label: Action label
+            overshoot_undershoot_rate: Probability of overshoot/undershoot
+            follow_through_points: Points to continue after clicking
+
+        Returns:
+            (final_position, end_time)
+        """
+        # Record target for debug visualization
+        if self.debug_mode:
+            self.debug_targets.append((target, label, color))
+
+        # Check for overshoot/undershoot (5% chance by default)
+        if self._rng.random() < overshoot_undershoot_rate:
+            return self._simulate_swift_click_with_overshoot(
+                start, target, color, start_time, label, follow_through_points
+            )
+
+        # Normal swift click
+        return self._execute_swift_click_simulation(
+            start, target, color, start_time, label, follow_through_points
+        )
+
+    def _execute_swift_click_simulation(
+        self,
+        start: tuple[int, int],
+        target: ClickTarget,
+        color: tuple[int, int, int],
+        start_time: float,
+        label: str,
+        follow_through_points: int,
+    ) -> tuple[tuple[int, int], float]:
+        """Execute the swift click motion simulation.
+
+        Generates a path that goes PAST the target so click happens mid-motion.
+        """
+        click_result = self.click_handler.calculate_click(target)
+        target_x, target_y = click_result.x, click_result.y
+
+        dx = target_x - start[0]
+        dy = target_y - start[1]
+        distance = (dx**2 + dy**2) ** 0.5
+
+        # For very short distances, fall back to normal click at target
+        if distance < 20:
+            path = self.bezier.generate_path(start, (target_x, target_y), num_points=60)
+            total_time = self.bezier.calculate_movement_time(start, (target_x, target_y))
+            delays = self.bezier.get_point_delays(path, total_time)
+
+            segment = PathSegment(
+                points=path, delays=delays, total_time=total_time,
+                color=color, is_overshoot=False, label=label,
+            )
+            self.path_segments.append(segment)
+            self.actions.append(SimulatedAction(action_type="move", start_time=start_time,
+                                                end_time=start_time + total_time, data={"segment": segment}))
+
+            click_time = start_time + total_time
+            self.click_events.append(ClickEvent(x=target_x, y=target_y, timestamp=click_time, duration=click_result.duration))
+            self.actions.append(SimulatedAction(action_type="click", start_time=click_time,
+                                                end_time=click_time + click_result.duration, data={"x": target_x, "y": target_y}))
+            return (target_x, target_y), click_time + click_result.duration
+
+        # Calculate overshoot destination (20-40 pixels past target)
+        norm_dx, norm_dy = dx / distance, dy / distance
+        overshoot_dist = self._rng.integers(20, 41)
+        dest_x = int(target_x + norm_dx * overshoot_dist)
+        dest_y = int(target_y + norm_dy * overshoot_dist)
+
+        # Generate path to overshoot point (passing through target)
+        path = self.bezier.generate_path(start, (dest_x, dest_y), num_points=60)
+        total_time = self.bezier.calculate_movement_time(start, (dest_x, dest_y))
+        delays = self.bezier.get_point_delays(path, total_time)
+
+        # Find first point inside target bounds
+        click_index = None
+        for i, point in enumerate(path):
+            if self._point_in_target(point, target):
+                click_index = i
+                break
+
+        # Fallback: click at roughly 60% of path
+        if click_index is None:
+            click_index = int(len(path) * 0.6)
+
+        # Split path into pre-click and follow-through segments
+        pre_click_path = path[:click_index + 1]
+        pre_click_delays = delays[:click_index + 1]
+        pre_click_time = sum(pre_click_delays)
+
+        # Calculate click position (where we enter the target)
+        click_x, click_y = path[click_index]
+
+        # Pre-click segment
+        pre_segment = PathSegment(
+            points=pre_click_path, delays=pre_click_delays, total_time=pre_click_time,
+            color=color, is_overshoot=False, label=label,
+        )
+        self.path_segments.append(pre_segment)
+        self.actions.append(SimulatedAction(action_type="move", start_time=start_time,
+                                            end_time=start_time + pre_click_time, data={"segment": pre_segment}))
+
+        # Click mid-motion (shorter duration for swift click)
+        click_time = start_time + pre_click_time
+        swift_click_duration = click_result.duration * 0.6
+        self.click_events.append(ClickEvent(x=click_x, y=click_y, timestamp=click_time, duration=swift_click_duration))
+        self.actions.append(SimulatedAction(action_type="click", start_time=click_time,
+                                            end_time=click_time + swift_click_duration, data={"x": click_x, "y": click_y}))
+
+        # Follow-through segment (continue past target)
+        end_index = min(click_index + follow_through_points, len(path))
+        if end_index > click_index + 1:
+            follow_path = path[click_index:end_index]
+            follow_delays = [d * 0.7 for d in delays[click_index:end_index]]  # Faster follow-through
+            follow_time = sum(follow_delays)
+
+            follow_segment = PathSegment(
+                points=follow_path, delays=follow_delays, total_time=follow_time,
+                color=(color[0] // 2, color[1] // 2, color[2] // 2),  # Darker for follow-through
+                is_overshoot=False, label=f"{label} (follow)",
+            )
+            self.path_segments.append(follow_segment)
+            self.actions.append(SimulatedAction(action_type="move", start_time=click_time + swift_click_duration,
+                                                end_time=click_time + swift_click_duration + follow_time, data={"segment": follow_segment}))
+
+            final_pos = path[end_index - 1]
+            return final_pos, click_time + swift_click_duration + follow_time
+
+        return (click_x, click_y), click_time + swift_click_duration
+
+    def _simulate_swift_click_with_overshoot(
+        self,
+        start: tuple[int, int],
+        target: ClickTarget,
+        color: tuple[int, int, int],
+        start_time: float,
+        label: str,
+        follow_through_points: int,
+    ) -> tuple[tuple[int, int], float]:
+        """Swift click with overshoot/undershoot correction first."""
+        click_result = self.click_handler.calculate_click(target)
+        target_x, target_y = click_result.x, click_result.y
+
+        dx = target_x - start[0]
+        dy = target_y - start[1]
+        distance = (dx**2 + dy**2) ** 0.5
+
+        if distance < 10:
+            return self._execute_swift_click_simulation(
+                start, target, color, start_time, label, follow_through_points
+            )
+
+        norm_dx, norm_dy = dx / distance, dy / distance
+
+        if self._rng.random() < 0.5:  # Overshoot
+            extra = self._rng.integers(10, 31)
+            stop_x = int(target_x + norm_dx * extra)
+            stop_y = int(target_y + norm_dy * extra)
+            label_suffix = "OVERSHOOT"
+        else:  # Undershoot
+            short = self._rng.integers(10, 26)
+            stop_x = int(target_x - norm_dx * short)
+            stop_y = int(target_y - norm_dy * short)
+            label_suffix = "UNDERSHOOT"
+
+        print(f"  {label_suffix} on: {label}")
+
+        # First movement: to wrong position
+        wrong_path = self.bezier.generate_path(start, (stop_x, stop_y), num_points=60)
+        wrong_time = self.bezier.calculate_movement_time(start, (stop_x, stop_y))
+        wrong_delays = self.bezier.get_point_delays(wrong_path, wrong_time)
+
+        wrong_segment = PathSegment(
+            points=wrong_path, delays=wrong_delays, total_time=wrong_time,
+            color=(255, 200, 100),  # Orange for overshoot/undershoot
+            is_overshoot=False, label=f"{label} ({label_suffix})",
+        )
+        self.path_segments.append(wrong_segment)
+        self.actions.append(SimulatedAction(action_type="move", start_time=start_time,
+                                            end_time=start_time + wrong_time, data={"segment": wrong_segment}))
+
+        # Brief pause (realizing wrong spot)
+        current_time = start_time + wrong_time + self._rng.uniform(0.05, 0.15)
+
+        # Now do swift click to correct position
+        return self._execute_swift_click_simulation(
+            (stop_x, stop_y), target, color, current_time, f"{label} (CORRECT)", follow_through_points
+        )
+
     def _detect_skill_ui_position(
         self,
         template_name: str,
@@ -1393,12 +1612,10 @@ class BotMovementVisualizer:
                         label=f"[C{cycle+1}] Clean herb {count+1} (slot {slot_idx})",
                     )
                 else:
-                    # Normal click (with possible misclick or overshoot/undershoot)
-                    current_pos, current_time = self._simulate_move_to_target(
+                    # Swift click (click while passing through, no stopping)
+                    current_pos, current_time = self._simulate_swift_click(
                         current_pos, slot_target, self.COLOR_INVENTORY, current_time,
                         label=f"[C{cycle+1}] Clean herb {count+1} (slot {slot_idx})",
-                        slot_row=slot_row,
-                        misclick_rate=0.03,  # 3% misclick rate
                         overshoot_undershoot_rate=overshoot_undershoot_rate,
                     )
 
